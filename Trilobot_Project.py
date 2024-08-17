@@ -7,7 +7,7 @@ import math
 import io
 import logging
 import socketserver
-from threading import Condition, Thread
+from multiprocessing import Process
 from http import server
 
 # Initialize the Trilobot
@@ -204,9 +204,9 @@ def start_streaming():
 def main():
     startup_animation()
 
-    # Start streaming in a separate thread
-    streaming_thread = Thread(target=start_streaming)
-    streaming_thread.start()
+    # Start streaming in a separate process
+    streaming_process = Process(target=start_streaming)
+    streaming_process.start()
 
     controller = create_ps4_controller()
     controller.update()
