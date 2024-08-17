@@ -4,6 +4,11 @@ import picamera
 import subprocess
 import time
 import math
+import io
+import logging
+import socketserver
+from threading import Condition, Thread
+from http import server
 
 # Initialize the Trilobot
 tbot = Trilobot()
@@ -40,25 +45,6 @@ def capture_image_with_raspistill():
     command = ["raspistill", "-o", image_path, "-t", "2000", "-q", "100"]
     subprocess.run(command, check=True)
     print(f"Image captured and saved to {image_path}")
-
-# Function to capture an image using the PiCamera
-def capture_image():
-    with picamera.PiCamera() as camera:
-        camera.resolution = (1024, 768)  # Set resolution
-        camera.capture('/home/pibot/trilobot_image.jpg')  # Save image
-        print("Image captured.")
-
-# Function to create and return a PS4 controller setup
-def create_ps4_controller(stick_deadzone_percent=0.1):
-    controller = SimpleController("Wireless Controller", exact_match=True)
-    controller.register_button("Circle", 305, alt_name="B")
-    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
-    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
-    return controller
 
 # Function to sense the environment using the ultrasonic sensor
 def sense_environment(timeout=100, samples=5, offset=190000):
@@ -135,10 +121,93 @@ def handle_underlighting(h, v, controller_connected):
         v += math.pi / 200
     return h, v
 
+# Streaming server setup
+PAGE = """\
+<html>
+<head>
+<title>Raspberry Pi - Camera Stream</title>
+</head>
+<body>
+<h1>Raspberry Pi - Camera Stream</h1>
+<img src="stream.mjpg" width="640" height="480" />
+</body>
+</html>
+"""
+
+class StreamingOutput(object):
+    def __init__(self):
+        self.frame = None
+        self.buffer = io.BytesIO()
+        self.condition = Condition()
+
+    def write(self, buf):
+        if buf.startswith(b'\xff\xd8'):
+            # New frame, copy the existing buffer's content and notify all clients it's available
+            self.buffer.truncate()
+            with self.condition:
+                self.frame = self.buffer.getvalue()
+                self.condition.notify_all()
+            self.buffer.seek(0)
+        return self.buffer.write(buf)
+
+class StreamingHandler(server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(PAGE.encode('utf-8'))
+        elif self.path == '/stream.mjpg':
+            self.send_response(200)
+            self.send_header('Age', 0)
+            self.send_header('Cache-Control', 'no-cache, private')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
+            self.end_headers()
+            try:
+                while True:
+                    with output.condition:
+                        output.condition.wait()
+                        frame = output.frame
+                    self.wfile.write(b'--FRAME\r\n')
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', len(frame))
+                    self.end_headers()
+                    self.wfile.write(frame)
+                    self.wfile.write(b'\r\n')
+            except Exception as e:
+                logging.warning(
+                    "Removed streaming client %s: %s",
+                    self.client_address, str(e))
+        else:
+            self.send_error(404)
+            self.end_headers()
+
+class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+def start_streaming():
+    with picamera.PiCamera(resolution='640x480', framerate=24) as camera:
+        global output
+        output = StreamingOutput()
+        camera.start_recording(output, format='mjpeg')
+        try:
+            address = ('', 8000)
+            server = StreamingServer(address, StreamingHandler)
+            print("Starting server at http://<Raspberry_Pi_IP_Address>:8000")
+            server.serve_forever()
+        finally:
+            camera.stop_recording()
+
 # Main function
 def main():
     startup_animation()
-    
+
+    # Start streaming in a separate thread
+    streaming_thread = Thread(target=start_streaming)
+    streaming_thread.start()
+
     controller = create_ps4_controller()
     controller.update()
 
