@@ -8,6 +8,7 @@ import io
 import logging
 import socketserver
 from multiprocessing import Process
+from threading import Condition
 from http import server
 
 # Initialize the Trilobot
@@ -45,6 +46,18 @@ def capture_image_with_raspistill():
     command = ["raspistill", "-o", image_path, "-t", "2000", "-q", "100"]
     subprocess.run(command, check=True)
     print(f"Image captured and saved to {image_path}")
+
+# Function to create and return a PS4 controller setup
+def create_ps4_controller(stick_deadzone_percent=0.1):
+    controller = SimpleController("Wireless Controller", exact_match=True)
+    controller.register_button("Circle", 305, alt_name="B")
+    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
+    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
+    return controller
 
 # Function to sense the environment using the ultrasonic sensor
 def sense_environment(timeout=100, samples=5, offset=190000):
@@ -243,3 +256,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
