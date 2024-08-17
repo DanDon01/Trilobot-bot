@@ -7,6 +7,7 @@ import math
 import io
 import logging
 import socketserver
+import datetime
 from multiprocessing import Process
 from threading import Condition
 from http import server
@@ -40,12 +41,23 @@ def startup_animation():
         time.sleep(0.1)
     tbot.clear_underlighting()
 
-# Function to capture an image using raspistill
 def capture_image_with_raspistill():
-    image_path = "/home/pibot/captured_image.jpg"
+    # Get the current time and format it as a string
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Define the path and name for the output image, including the timestamp
+    image_path = f"/home/pibot/captured_image_{timestamp}.jpg"
+    
+    # Define the raspistill command with desired options
     command = ["raspistill", "-o", image_path, "-t", "2000", "-q", "100"]
-    subprocess.run(command, check=True)
-    print(f"Image captured and saved to {image_path}")
+    
+    # Execute the command
+    try:
+        subprocess.run(command, check=True)
+        print(f"Image captured and saved to {image_path}")
+    except Exception as e:
+        print(f"Error capturing image: {e}")
+
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
@@ -93,28 +105,84 @@ def handle_motor_control(controller, tank_steer):
     except ValueError:
         tbot.disable_motors()
 
-# Function to handle controller input and toggle tank steering mode
 def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
     try:
+        # D-pad Up
+        if controller.read_axis("hat0y") == -1:
+            print("D-pad Up pressed - Green LED")
+            tbot.fill_underlighting(0, 255, 0)  # Set all LEDs to green
+        
+        # D-pad Down
+        elif controller.read_axis("hat0y") == 1:
+            print("D-pad Down pressed - Red LED")
+            tbot.fill_underlighting(255, 0, 0)  # Set all LEDs to red
+        
+        # D-pad Left
+        elif controller.read_axis("hat0x") == -1:
+            print("D-pad Left pressed - Yellow LED")
+            tbot.fill_underlighting(255, 255, 0)  # Set all LEDs to yellow
+        
+        # D-pad Right
+        elif controller.read_axis("hat0x") == 1:
+            print("D-pad Right pressed - Blue LED")
+            tbot.fill_underlighting(0, 0, 255)  # Set all LEDs to blue
+            
         if controller.read_button("L1") and tank_steer:
             tank_steer = False
             print("Tank Steering Disabled")
         elif controller.read_button("R1") and not tank_steer:
             tank_steer = True
             print("Tank Steering Enabled")
-    except ValueError:
-        print("Tank Steering Not Available")
+        
+        if controller.read_button("Triangle"):
+            print("Triangle button pressed")
+            # Call a function here
+            function_for_triangle_button()
 
-    try:
-        is_button_pressed = controller.read_button("Circle")
-        if is_button_pressed and not button_pressed_last_frame:
+        if controller.read_button("Square"):
+            print("Square button pressed")
+            # Call a function here
+            function_for_square_button()
+
+        if controller.read_button("Cross"):
+            print("Cross button pressed")
+            # Call a function here
+            function_for_cross_button()
+
+        if controller.read_button("Circle") and not button_pressed_last_frame:
+            print("Circle button pressed")
             capture_image_with_raspistill()
             time.sleep(1)  # Prevent multiple captures
-        button_pressed_last_frame = is_button_pressed
+            button_pressed_last_frame = True
+        else:
+            button_pressed_last_frame = False
+
+        if controller.read_button("Share"):
+            print("Share button pressed")
+            # Assign a function to the Share button here
+            function_for_share_button()
+
     except ValueError:
-        print("Capture button not available")
+        print("Button not available or error in reading button state")
 
     return tank_steer, button_pressed_last_frame
+
+def function_for_triangle_button():
+    print("Triangle button function activated")
+    # Add your functionality here
+
+def function_for_square_button():
+    print("Square button function activated")
+    # Add your functionality here
+
+def function_for_cross_button():
+    print("Cross button function activated")
+    # Add your functionality here
+
+def function_for_share_button():
+    print("Share button function activated")
+    # Add your functionality here
+
 
 # Function to handle underlighting animation based on controller connection
 def handle_underlighting(h, v, controller_connected):
@@ -256,4 +324,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
