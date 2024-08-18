@@ -15,7 +15,7 @@ from http import server
 # Initialize the Trilobot
 tbot = Trilobot()
 
-NUM_UNDERLIGHTS = 5  # Assuming the number of underlights
+NUM_UNDERLIGHTS = 6  # Assuming the number of underlights
 
 # Define sensor reading parameters
 timeout = 100  # milliseconds
@@ -42,22 +42,14 @@ def startup_animation():
     tbot.clear_underlighting()
 
 def capture_image_with_raspistill():
-    # Get the current time and format it as a string
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Define the path and name for the output image, including the timestamp
-    image_path = f"/home/pibot/captured_image_{timestamp}.jpg"
-    
-    # Define the raspistill command with desired options
-    command = ["raspistill", "-o", image_path, "-t", "2000", "-q", "100"]
-    
-    # Execute the command
     try:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        image_path = f"/home/pi/captured_image_{timestamp}.jpg"
+        command = ["raspistill", "-o", image_path, "-t", "2000", "-q", "100"]
         subprocess.run(command, check=True)
         print(f"Image captured and saved to {image_path}")
     except Exception as e:
         print(f"Error capturing image: {e}")
-
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
@@ -69,15 +61,17 @@ def create_ps4_controller(stick_deadzone_percent=0.1):
     controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
     controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
+    controller.register_button("Triangle", 307, alt_name="Y")
+    controller.register_button("Square", 304, alt_name="X")
+    controller.register_button("Cross", 306, alt_name="A")
+    controller.register_button("Share", 314, alt_name="Back")
     return controller
 
 # Function to sense the environment using the ultrasonic sensor
-def sense_environment(timeout=100, samples=5, offset=190000):
+def sense_environment(last_distance, threshold=10, timeout=100, samples=5, offset=190000):
     distance = tbot.read_distance(timeout=timeout, samples=samples, offset=offset)
-    if distance > 0:
-        print(f"Distance: {distance} cm")
-    else:
-        print("No valid reading or obstacle too close. Adjusting route...")
+    if abs(distance - last_distance) > threshold:
+        print(f"Distance changed: {distance} cm")
     return distance
 
 # Function to handle obstacle detection and avoidance
@@ -107,60 +101,28 @@ def handle_motor_control(controller, tank_steer):
 
 def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
     try:
-        # D-pad Up
-        if controller.read_axis("hat0y") == -1:
-            print("D-pad Up pressed - Green LED")
-            tbot.fill_underlighting(0, 255, 0)  # Set all LEDs to green
-        
-        # D-pad Down
-        elif controller.read_axis("hat0y") == 1:
-            print("D-pad Down pressed - Red LED")
-            tbot.fill_underlighting(255, 0, 0)  # Set all LEDs to red
-        
-        # D-pad Left
-        elif controller.read_axis("hat0x") == -1:
-            print("D-pad Left pressed - Yellow LED")
-            tbot.fill_underlighting(255, 255, 0)  # Set all LEDs to yellow
-        
-        # D-pad Right
-        elif controller.read_axis("hat0x") == 1:
-            print("D-pad Right pressed - Blue LED")
-            tbot.fill_underlighting(0, 0, 255)  # Set all LEDs to blue
-            
         if controller.read_button("L1") and tank_steer:
             tank_steer = False
             print("Tank Steering Disabled")
         elif controller.read_button("R1") and not tank_steer:
             tank_steer = True
             print("Tank Steering Enabled")
-        
-        if controller.read_button("Triangle"):
-            print("Triangle button pressed")
-            # Call a function here
-            function_for_triangle_button()
-
-        if controller.read_button("Square"):
-            print("Square button pressed")
-            # Call a function here
-            function_for_square_button()
-
-        if controller.read_button("Cross"):
-            print("Cross button pressed")
-            # Call a function here
-            function_for_cross_button()
 
         if controller.read_button("Circle") and not button_pressed_last_frame:
-            print("Circle button pressed")
+            print("Circle button pressed - Capturing image")
             capture_image_with_raspistill()
-            time.sleep(1)  # Prevent multiple captures
             button_pressed_last_frame = True
+        elif controller.read_button("Square"):
+            print("Square button pressed")
+            function_for_square_button()
+        elif controller.read_button("Triangle"):
+            print("Triangle button pressed")
+            function_for_triangle_button()
+        elif controller.read_button("Cross"):
+            print("Cross button pressed")
+            function_for_cross_button()
         else:
             button_pressed_last_frame = False
-
-        if controller.read_button("Share"):
-            print("Share button pressed")
-            # Assign a function to the Share button here
-            function_for_share_button()
 
     except ValueError:
         print("Button not available or error in reading button state")
@@ -182,7 +144,6 @@ def function_for_cross_button():
 def function_for_share_button():
     print("Share button function activated")
     # Add your functionality here
-
 
 # Function to handle underlighting animation based on controller connection
 def handle_underlighting(h, v, controller_connected):
@@ -289,11 +250,12 @@ def main():
     streaming_process = Process(target=start_streaming)
     streaming_process.start()
 
+    # Initialize the PS4 controller
     controller = create_ps4_controller()
-    controller.update()
 
     button_pressed_last_frame = False
     tank_steer = False
+    last_distance = 0
 
     h = 0
     v = 0
@@ -302,8 +264,9 @@ def main():
         if not controller.is_connected():
             controller.reconnect(10, True)
 
-        distance = sense_environment()
+        distance = sense_environment(last_distance)
         handle_obstacles(distance)
+        last_distance = distance
 
         try:
             controller.update()
@@ -324,3 +287,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
