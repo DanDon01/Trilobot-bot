@@ -1,4 +1,4 @@
-from trilobot import Trilobot, controller_mappings
+from trilobot import Trilobot, controller_mappings, BUTTON_A
 from trilobot.simple_controller import SimpleController
 import picamera
 import subprocess
@@ -15,11 +15,29 @@ from http import server
 # Initialize the Trilobot
 tbot = Trilobot()
 
+# Define some common colours to use later
+RED = (255, 0, 0)
+YELLOW = (255, 255, 0)
+GREEN = (0, 255, 0)
+CYAN = (0, 255, 255)
+BLUE = (0, 0, 255)
+MAGENTA = (255, 0, 255)
+BLACK = (0, 0, 0)
+
+""" Set underlighting using separate red, green, and blue values
+tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)      # Red
+tbot.set_underlight(LIGHT_MIDDLE_LEFT, 255, 255, 0, show=False)   # Yellow
+tbot.set_underlight(LIGHT_REAR_LEFT, 0, 255, 0, show=False)       # Green
+tbot.set_underlight(LIGHT_REAR_RIGHT, 0, 255, 255, show=False)    # Cyan
+tbot.set_underlight(LIGHT_MIDDLE_RIGHT, 0, 0, 255, show=False)    # Blue
+tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 255, show=False)   # Magenta """
+
+TURN_DISTANCE = 30  # How close a wall needs to be, in cm, before we start turning
 NUM_UNDERLIGHTS = 6  # Assuming the number of underlights
 
 # Define sensor reading parameters
-timeout = 100  # milliseconds
-samples = 5  # number of readings for averaging
+timeout = 50  # milliseconds
+samples = 3  # number of readings for averaging
 offset = 190000  # suitable for Raspberry Pi 4, adjust if necessary
 
 # Define colors for underlighting
@@ -53,35 +71,54 @@ def capture_image_with_raspistill():
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
+    """ Create a controller class for the PlayStation 4 Wireless controller.
+    stick_deadzone_percent: the deadzone amount to apply to the controller's analog sticks
+    """
     controller = SimpleController("Wireless Controller", exact_match=True)
+
+    # Button and axis registrations for PS4 Controller
+    controller.register_button("Cross", 304, alt_name="A")
     controller.register_button("Circle", 305, alt_name="B")
+    controller.register_button("Square", 308, alt_name="X")
+    controller.register_button("Triangle", 307, alt_name="Y")
+    controller.register_button("Options", 315, alt_name='Start')
+    controller.register_button("Share", 314, alt_name='Select')
+    controller.register_button("PS", 316, alt_name='Home')
+    controller.register_button("L1", 310, alt_name="LB")
+    controller.register_button("L2", 312, alt_name="LT")
+    controller.register_button("R1", 311, alt_name="RB")
+    controller.register_button("R2", 313, alt_name="RT")
+    controller.register_axis_as_button("Left", 16, -1, 0)
+    controller.register_axis_as_button("Right", 16, 1, 0)
+    controller.register_axis_as_button("Up", 17, -1, 0)
+    controller.register_axis_as_button("Down", 17, 1, 0)
+    controller.register_button("L3", 317, alt_name='LS')
+    controller.register_button("R3", 318, alt_name='RS')
+
     controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
     controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
-    controller.register_button("Triangle", 307, alt_name="Y")
-    controller.register_button("Square", 304, alt_name="X")
-    controller.register_button("Cross", 306, alt_name="A")
-    controller.register_button("Share", 314, alt_name="Back")
     return controller
 
 # Function to sense the environment using the ultrasonic sensor
-def sense_environment(last_distance, threshold=10, timeout=100, samples=5, offset=190000):
+def sense_environment(last_distance, threshold, timeout, samples, offset):
     distance = tbot.read_distance(timeout=timeout, samples=samples, offset=offset)
     if abs(distance - last_distance) > threshold:
-        print(f"Distance changed: {distance} cm")
+        tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 255, 0, show=False)      # Green
+        tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 255, 0, show=False)      # Green
     return distance
 
 # Function to handle obstacle detection and avoidance
 def handle_obstacles(distance):
     if distance > 0 and distance < 20:
-        print("Obstacle detected. Making adjustments.")
-        # Implement obstacle avoidance logic here
+        tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)      # Red
+        tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)      # Red
     else:
-        print("Path clear. Continuing forward.")
-        # Implement clear path logic here
+        tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)      # Black
+        tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)      # Black
 
 # Function to handle motor control based on controller input
 def handle_motor_control(controller, tank_steer):
@@ -131,19 +168,19 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
 
 def function_for_triangle_button():
     print("Triangle button function activated")
-    # Add your functionality here
+    tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)      # Red
 
 def function_for_square_button():
     print("Square button function activated")
-    # Add your functionality here
+    tbot.set_underlight(LIGHT_REAR_LEFT, 0, 255, 0, show=False)       # Green
 
 def function_for_cross_button():
     print("Cross button function activated")
-    # Add your functionality here
+    tbot.set_underlight(LIGHT_REAR_RIGHT, 0, 255, 255, show=False)    # Cyan
 
 def function_for_share_button():
     print("Share button function activated")
-    # Add your functionality here
+    tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 255, show=False)   # Magenta
 
 # Function to handle underlighting animation based on controller connection
 def handle_underlighting(h, v, controller_connected):
@@ -234,6 +271,8 @@ def start_streaming():
         global output
         output = StreamingOutput()
         camera.start_recording(output, format='mjpeg')
+        # Turn the top button LED on red while live 
+        tbot.set_button_led(led, TRUE)
         try:
             address = ('', 8000)
             server = StreamingServer(address, StreamingHandler)
@@ -241,7 +280,7 @@ def start_streaming():
             server.serve_forever()
         finally:
             camera.stop_recording()
-
+             tbot.set_button_led(led, FALSE)
 # Main function
 def main():
     startup_animation()
