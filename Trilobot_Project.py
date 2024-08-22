@@ -1,4 +1,4 @@
-from trilobot import Trilobot, controller_mappings, BUTTON_A
+from trilobot import Trilobot, controller_mappings, BUTTON_A, LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT, LIGHT_REAR_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_RIGHT, LIGHT_REAR_RIGHT
 from trilobot.simple_controller import SimpleController
 import picamera
 import subprocess
@@ -24,6 +24,38 @@ BLUE = (0, 0, 255)
 MAGENTA = (255, 0, 255)
 BLACK = (0, 0, 0)
 
+# Default values for the distance_reading() function
+COLLISION_THRESHOLD_CM  = 22
+MAX_NUM_READINGS        = 10
+MAX_TIMEOUT_SEC         = 25
+MAX_NUM_SAMPLES         = 3
+
+# Speed parametners
+NORMAL_LEFT_SPEED       = 0.65
+NORMAL_RIGHT_SPEED      = 0.65
+
+# Turning parameters
+TURN_SPEED              = 0.65
+TURN_TIME_SEC           = 0.55
+TURN_RIGHT_PERCENT      = 65
+
+# Backup parameters
+BACKUP_LOOPS            = 5
+BACKUP_TIME_SEC         = 0.15
+
+'''
+  Setup the underlighting
+'''
+DEFAULT_BLINK_COLOR     = BLUE
+DEFAULT_BLINK_RATE_SEC  = 0.25
+DEFAULT_NUM_CYCLES      = 1
+
+# Light groups
+LEFT_LIGHTS             = [ LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT ]
+RIGHT_LIGHTS            = [ LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_RIGHT ]
+REAR_LIGHTS             = [ LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT ]
+FRONT_LIGHTS            = [ LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT ]
+
 """ Set underlighting using separate red, green, and blue values
 tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)      # Red
 tbot.set_underlight(LIGHT_MIDDLE_LEFT, 255, 255, 0, show=False)   # Yellow
@@ -44,6 +76,14 @@ offset = 190000  # suitable for Raspberry Pi 4, adjust if necessary
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
+
+def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
+  for cy in range(nr_cycles):
+    trilobot.set_underlights(group, color)
+    sleep(blink_rate_sec)
+    trilobot.clear_underlights(group)
+
+ return None
 
 # Function to show a startup animation on the underlights
 def startup_animation():
