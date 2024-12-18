@@ -399,32 +399,43 @@ def start_streaming():
         picam2.stop_recording()
 
 def attempt_controller_connection(controller, retry_interval=5):
-    """Attempt to connect to the controller with better user feedback"""
+    """Attempt to connect to the controller with minimal message spam"""
     last_attempt_time = 0
+    last_message_time = 0
+    message_interval = 10  # Show connection instructions every 10 seconds
+    
+    # Show initial connection instructions once
+    print("\n" + "="*50)
+    print("PS4 Controller Connection Instructions:")
+    print("1. Make sure your controller is charged")
+    print("2. To pair a new controller:")
+    print("   - Hold SHARE + PS button until light bar flashes rapidly")
+    print("3. For already paired controller:")
+    print("   - Simply press the PS button")
+    print("="*50 + "\n")
     
     while not controller.is_connected():
         current_time = time.time()
         
-        # Only try reconnecting and print message every retry_interval seconds
+        # Show periodic "Waiting for connection" message
+        if current_time - last_message_time >= message_interval:
+            print("\rWaiting for controller connection...", end='', flush=True)
+            last_message_time = current_time
+        
+        # Attempt reconnection periodically
         if current_time - last_attempt_time >= retry_interval:
-            print("\nController not connected. Attempting to reconnect...")
-            print("Please ensure:")
-            print("1. Your controller is charged")
-            print("2. Press the PS button to wake the controller")
-            print("3. To pair a new controller, hold SHARE + PS button until light bar flashes")
-            
             try:
-                controller.reconnect(timeout=2, silent=True)  # Quick timeout to keep things responsive
+                controller.reconnect(timeout=2, silent=True)
                 if controller.is_connected():
                     print("\nController connected successfully!")
                     tbot.fill_underlighting(0, 255, 0)  # Green to indicate success
                     time.sleep(1)
                     return True
-            except Exception as e:
-                print(f"Connection error: {str(e)}")
+            except Exception:
+                pass
             
             last_attempt_time = current_time
-            
+        
         time.sleep(0.1)  # Prevent CPU spinning
     
     return False
@@ -433,30 +444,40 @@ def attempt_controller_connection(controller, retry_interval=5):
 def main():
     startup_animation()
     
-    # Initialize the PS4 controller
+    # Initialize variables
     controller = create_ps4_controller()
-    
     button_pressed_last_frame = False
     tank_steer = False
     last_distance = 0
     h = 0
     v = 0
     last_connection_attempt = 0
-    connection_retry_interval = 5  # seconds between connection attempts
+    connection_retry_interval = 5
+    connection_status_shown = False
+    
+    print("\nStarting controller connection process...")
     
     while True:
         current_time = time.time()
         
         # Handle controller connection state
         if not controller.is_connected():
+            if not connection_status_shown:
+                print("\nController disconnected. Attempting to reconnect...")
+                connection_status_shown = True
+            
             if current_time - last_connection_attempt >= connection_retry_interval:
                 attempt_controller_connection(controller)
                 last_connection_attempt = current_time
             
             # Show disconnected state with red underlighting
             tbot.fill_underlighting(127, 0, 0)  # Dim red when disconnected
-            time.sleep(0.1)  # Prevent CPU spinning when disconnected
-            continue  # Skip the rest of the loop if not connected
+            time.sleep(0.1)
+            continue
+        
+        # Reset connection status flag when connected
+        if connection_status_shown:
+            connection_status_shown = False
         
         try:
             controller.update()
@@ -471,12 +492,13 @@ def main():
             h, v = handle_underlighting(h, v, True)
             
         except Exception as e:
-            print(f"Controller error: {str(e)}")
-            controller = create_ps4_controller()  # Recreate controller object on error
+            print(f"\nController error: {str(e)}")
+            controller = create_ps4_controller()
             tbot.disable_motors()
             time.sleep(1)
+            connection_status_shown = False
             
-        time.sleep(0.01)  # Small delay to prevent CPU spinning
+        time.sleep(0.01)
 
 if __name__ == "__main__":
     try:
