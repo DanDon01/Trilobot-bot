@@ -248,34 +248,39 @@ def start_camera_stream():
 def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nWaiting for PS4 controller connection...")
+    print("Press the PS button to connect the controller")
     
+    # Create controller with basic setup
     controller = SimpleController("Wireless Controller", exact_match=True)
     
-    # Register buttons and axes without silent parameter
-    controller.register_button("Cross", 304, alt_name="A")
-    controller.register_button("Circle", 305, alt_name="B")
-    controller.register_button("Square", 308, alt_name="X")
-    controller.register_button("Triangle", 307, alt_name="Y")
-    controller.register_button("Options", 315, alt_name='Start')
-    controller.register_button("Share", 314, alt_name='Select')
-    controller.register_button("PS", 316, alt_name='Home')
-    controller.register_button("L1", 310, alt_name="LB")
-    controller.register_button("L2", 312, alt_name="LT")
-    controller.register_button("R1", 311, alt_name="RB")
-    controller.register_button("R2", 313, alt_name="RT")
+    # Register buttons
+    controller.register_button("Cross", 304)
+    controller.register_button("Circle", 305)
+    controller.register_button("Square", 308)
+    controller.register_button("Triangle", 307)
+    controller.register_button("Options", 315)
+    controller.register_button("Share", 314)
+    controller.register_button("PS", 316)
+    controller.register_button("L1", 310)
+    controller.register_button("L2", 312)
+    controller.register_button("R1", 311)
+    controller.register_button("R2", 313)
+    controller.register_button("L3", 317)
+    controller.register_button("R3", 318)
+    
+    # Register D-pad
     controller.register_axis_as_button("Left", 16, -1, 0)
     controller.register_axis_as_button("Right", 16, 1, 0)
     controller.register_axis_as_button("Up", 17, -1, 0)
     controller.register_axis_as_button("Down", 17, 1, 0)
-    controller.register_button("L3", 317, alt_name='LS')
-    controller.register_button("R3", 318, alt_name='RS')
-
+    
+    # Register analog sticks and triggers
     controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
     controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
-    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
+    controller.register_axis("L2", 2, 0, 255)
+    controller.register_axis("R2", 5, 0, 255)
     
     return controller
 
@@ -393,6 +398,8 @@ def main():
         
         # Initialize the PS4 controller
         controller = create_ps4_controller()
+        connection_message_time = 0
+        message_interval = 3  # Show connection message every 3 seconds
         
         # Initialize variables
         button_pressed_last_frame = False
@@ -402,11 +409,15 @@ def main():
         v = 0
         
         while True:
+            current_time = time.time()
+            
             if not controller.is_connected():
-                print("\rWaiting for controller connection...", end='')
-                time.sleep(1)
+                if current_time - connection_message_time >= message_interval:
+                    print("\rWaiting for controller... Press PS button", end='')
+                    connection_message_time = current_time
+                time.sleep(0.5)
                 continue
-                
+            
             try:
                 controller.update()
                 tank_steer, button_pressed_last_frame = handle_controller_input(
@@ -428,10 +439,10 @@ def main():
         # Cleanup section
         if 'stream_process' in globals():
             stream_process.terminate()
-            stream_process.join(timeout=1)  # Wait for process to terminate
+            stream_process.join(timeout=1)
             if stream_process.is_alive():
-                stream_process.kill()  # Force kill if still alive
-        cleanup_camera()  # Run cleanup again to ensure camera is freed
+                stream_process.kill()
+        cleanup_camera()
         tbot.clear_underlighting()
         tbot.disable_motors()
 
