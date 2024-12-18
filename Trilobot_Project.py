@@ -114,6 +114,11 @@ PARTY_COLORS = [
 knight_rider_active = False
 party_mode_active = False
 
+# Distance thresholds in cm
+DANGER_DISTANCE = 20    # Red warning
+CAUTION_DISTANCE = 40   # Yellow warning
+SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
+
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
         trilobot.set_underlights(group, color)
@@ -514,9 +519,26 @@ def update_party_lights(current_color_index):
     # Move to next color
     return (current_color_index + 1) % len(PARTY_COLORS)
 
+def handle_distance_warning(distance):
+    """Updates front underlights based on distance"""
+    if distance > 0:  # Valid reading
+        if distance < DANGER_DISTANCE:
+            # Close - Red warning
+            tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)
+            tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)
+        elif distance < CAUTION_DISTANCE:
+            # Medium distance - Yellow warning
+            tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 255, 0, show=False)
+            tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 255, 0, show=False)
+        else:
+            # Far - Lights off
+            tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)
+            tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)
+    tbot.show_underlighting()
+
 # Main function
 def main():
-    global stream_process  # We don't need to declare knight_rider_active and party_mode_active here anymore
+    global stream_process, knight_rider_active, party_mode_active
     
     # Initialize light effect variables
     knight_rider_led = 0
@@ -545,6 +567,9 @@ def main():
     # Clean up any existing camera processes first
     cleanup_camera()
     
+    # Initialize distance sensor variables
+    last_sensor_read = time.time()
+    
     try:
         # Start the camera stream in a separate process
         stream_process = Process(target=start_camera_stream)
@@ -564,22 +589,29 @@ def main():
         # Main control loop
         while True:
             try:
+                current_time = time.time()
+                
+                # Update controller
                 controller.update(debug=False)
                 tank_steer, button_states = handle_controller_input(
                     controller, tank_steer, button_states
                 )
                 handle_motor_control(controller, tank_steer)
                 
-                current_time = time.time()
+                # Read distance sensor periodically if not in a light show mode
+                if not (knight_rider_active or party_mode_active):
+                    if current_time - last_sensor_read >= SENSOR_READ_INTERVAL:
+                        distance = tbot.read_distance(timeout=50, samples=3)
+                        handle_distance_warning(distance)
+                        last_sensor_read = current_time
                 
-                # Update Knight Rider effect if active
+                # Update light effects
                 if knight_rider_active and (current_time - last_knight_rider_update) >= KNIGHT_RIDER_INTERVAL:
                     knight_rider_led, knight_rider_direction = update_knight_rider_lights(
                         knight_rider_led, knight_rider_direction
                     )
                     last_knight_rider_update = current_time
                 
-                # Update Party Mode if active
                 if party_mode_active and (current_time - last_party_update) >= PARTY_MODE_INTERVAL:
                     party_color_index = update_party_lights(party_color_index)
                     last_party_update = current_time
