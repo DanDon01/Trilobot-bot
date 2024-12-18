@@ -211,13 +211,10 @@ def start_camera_stream():
         cleanup_camera()
         
         # Initialize camera
-        picam2 = Picamera2()
-        camera_config = picam2.create_video_configuration(
-            main={"size": (640, 480), "format": "RGB888"},
-            lores={"size": (320, 240), "format": "YUV420"},
-            display="lores"
-        )
-        picam2.configure(camera_config)
+        picam2 = initialize_camera()
+        if picam2 is None:
+            print("\rFailed to initialize camera")
+            return
         
         # Create output and start camera
         output = StreamingOutput()
@@ -247,31 +244,28 @@ def start_camera_stream():
 def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nAttempting to connect to PS4 controller...")
-    print("Make sure the controller is paired and press the PS button")
     
-    # Try different possible controller names
-    controller_names = [
-        "Wireless Controller",
-        "Sony Interactive Entertainment Wireless Controller",
-        "Sony Computer Entertainment Wireless Controller",
-        "PS4 Controller"
-    ]
-    
-    controller = None
-    for name in controller_names:
+    # Try to find the controller by checking available input devices
+    try:
+        # Simple direct connection attempt
+        controller = SimpleController(device_id=0)  # Try first game controller
+        if not controller.is_connected():
+            # Try next device
+            controller = SimpleController(device_id=1)
+    except Exception:
         try:
-            controller = SimpleController(name, exact_match=False)
-            if controller.is_connected():
-                print(f"Connected to controller: {name}")
-                break
+            # Fallback to direct name
+            controller = SimpleController("Wireless Controller")
         except Exception:
-            continue
-    
+            return None
+
     if controller is None or not controller.is_connected():
-        print("Could not find controller. Please ensure it's paired and powered on.")
+        print("Could not connect to controller")
         return None
+
+    print("Controller connected successfully!")
     
-    # Register buttons
+    # Register controls
     controller.register_button("Cross", 304)
     controller.register_button("Circle", 305)
     controller.register_button("Square", 308)
@@ -420,10 +414,10 @@ def main():
         max_retries = 3
         
         while controller is None and retry_count < max_retries:
+            print(f"\nAttempting to connect to controller (attempt {retry_count + 1}/{max_retries})")
             controller = create_ps4_controller()
             if controller is None:
                 retry_count += 1
-                print(f"\nRetry attempt {retry_count} of {max_retries}")
                 time.sleep(2)
         
         if controller is None:
@@ -434,13 +428,12 @@ def main():
             print("3. No other devices are using the controller")
             raise Exception("Controller connection failed")
         
+        print("\nController connected and ready!")
+        tank_steer = False
+        button_pressed_last_frame = False
+        
         # Main control loop
         while True:
-            if not controller.is_connected():
-                print("\rController disconnected. Press PS button to reconnect", end='')
-                time.sleep(1)
-                continue
-            
             try:
                 controller.update()
                 tank_steer, button_pressed_last_frame = handle_controller_input(
@@ -451,6 +444,10 @@ def main():
             except Exception as e:
                 print(f"\rController error: {str(e)}")
                 time.sleep(1)
+                # Try to reconnect
+                controller = create_ps4_controller()
+                if controller is None:
+                    print("\rAttempting to reconnect...", end='')
             
             time.sleep(0.01)
             
