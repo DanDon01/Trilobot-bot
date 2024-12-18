@@ -193,16 +193,23 @@ def initialize_camera():
         print(f"\rCamera initialization error: {str(e)}")
         return None
 
+def cleanup_camera():
+    try:
+        # Kill any existing camera processes
+        subprocess.run(['sudo', 'pkill', '-f', 'camera'], timeout=2)
+        subprocess.run(['sudo', 'pkill', '-f', 'libcamera'], timeout=2)
+        subprocess.run(['sudo', 'pkill', '-f', 'picamera2'], timeout=2)
+        subprocess.run(['sudo', 'systemctl', 'restart', 'camera'], timeout=2)
+        time.sleep(2)  # Give system time to clean up
+    except Exception as e:
+        print(f"Cleanup warning: {str(e)}")
+
 def start_camera_stream():
     global picam2, output
     
     try:
-        # First, try to clean up any existing camera instances
-        try:
-            subprocess.run(['pkill', '-f', 'camera'], timeout=2)
-            time.sleep(1)  # Give system time to clean up
-        except Exception:
-            pass
+        # Clean up first
+        cleanup_camera()
         
         # Initialize camera
         picam2 = Picamera2()
@@ -242,34 +249,33 @@ def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nWaiting for PS4 controller connection...")
     
-    # Remove debug parameter as it's not supported
     controller = SimpleController("Wireless Controller", exact_match=True)
     
-    # Register buttons and axes silently
-    controller.register_button("Cross", 304, alt_name="A", silent=True)
-    controller.register_button("Circle", 305, alt_name="B", silent=True)
-    controller.register_button("Square", 308, alt_name="X", silent=True)
-    controller.register_button("Triangle", 307, alt_name="Y", silent=True)
-    controller.register_button("Options", 315, alt_name='Start', silent=True)
-    controller.register_button("Share", 314, alt_name='Select', silent=True)
-    controller.register_button("PS", 316, alt_name='Home', silent=True)
-    controller.register_button("L1", 310, alt_name="LB", silent=True)
-    controller.register_button("L2", 312, alt_name="LT", silent=True)
-    controller.register_button("R1", 311, alt_name="RB", silent=True)
-    controller.register_button("R2", 313, alt_name="RT", silent=True)
-    controller.register_axis_as_button("Left", 16, -1, 0, silent=True)
-    controller.register_axis_as_button("Right", 16, 1, 0, silent=True)
-    controller.register_axis_as_button("Up", 17, -1, 0, silent=True)
-    controller.register_axis_as_button("Down", 17, 1, 0, silent=True)
-    controller.register_button("L3", 317, alt_name='LS', silent=True)
-    controller.register_button("R3", 318, alt_name='RS', silent=True)
+    # Register buttons and axes without silent parameter
+    controller.register_button("Cross", 304, alt_name="A")
+    controller.register_button("Circle", 305, alt_name="B")
+    controller.register_button("Square", 308, alt_name="X")
+    controller.register_button("Triangle", 307, alt_name="Y")
+    controller.register_button("Options", 315, alt_name='Start')
+    controller.register_button("Share", 314, alt_name='Select')
+    controller.register_button("PS", 316, alt_name='Home')
+    controller.register_button("L1", 310, alt_name="LB")
+    controller.register_button("L2", 312, alt_name="LT")
+    controller.register_button("R1", 311, alt_name="RB")
+    controller.register_button("R2", 313, alt_name="RT")
+    controller.register_axis_as_button("Left", 16, -1, 0)
+    controller.register_axis_as_button("Right", 16, 1, 0)
+    controller.register_axis_as_button("Up", 17, -1, 0)
+    controller.register_axis_as_button("Down", 17, 1, 0)
+    controller.register_button("L3", 317, alt_name='LS')
+    controller.register_button("R3", 318, alt_name='RS')
 
-    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
-    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
-    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
-    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
-    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT", silent=True)
-    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT", silent=True)
+    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
+    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
+    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
     
     return controller
 
@@ -372,16 +378,19 @@ def handle_underlighting(h, v, controller_connected):
 
 # Main function
 def main():
-    global stream_process  # Make it global so it can be accessed in error handling
+    global stream_process
     
-    # Start the camera stream in a separate process
-    stream_process = Process(target=start_camera_stream)
-    stream_process.start()
-    time.sleep(2)  # Give the camera time to initialize
-    
-    startup_animation()
+    # Clean up any existing camera processes first
+    cleanup_camera()
     
     try:
+        # Start the camera stream in a separate process
+        stream_process = Process(target=start_camera_stream)
+        stream_process.start()
+        time.sleep(3)
+        
+        startup_animation()
+        
         # Initialize the PS4 controller
         controller = create_ps4_controller()
         
@@ -391,61 +400,38 @@ def main():
         last_distance = 0
         h = 0
         v = 0
-        last_connection_attempt = 0
-        connection_retry_interval = 5
-        last_status = None  # Track last connection status
-        
-        print("\nStarting controller connection process...")
         
         while True:
-            current_time = time.time()
-            current_status = controller.is_connected()
-            
-            # Only print status when it changes
-            if current_status != last_status:
-                if current_status:
-                    print("\rController connected    ")
-                    tbot.fill_underlighting(0, 255, 0)  # Green
-                    time.sleep(0.5)
-                else:
-                    print("\rController disconnected ")
-                    tbot.fill_underlighting(127, 0, 0)  # Red
-                last_status = current_status
-            
-            if not current_status:
-                if current_time - last_connection_attempt >= connection_retry_interval:
-                    attempt_controller_connection(controller)
-                    last_connection_attempt = current_time
-                time.sleep(0.1)
+            if not controller.is_connected():
+                print("\rWaiting for controller connection...", end='')
+                time.sleep(1)
                 continue
-            
+                
             try:
                 controller.update()
                 tank_steer, button_pressed_last_frame = handle_controller_input(
                     controller, tank_steer, button_pressed_last_frame
                 )
                 handle_motor_control(controller, tank_steer)
-                h, v = handle_underlighting(h, v, True)
                 
             except Exception as e:
-                if str(e) != last_error:  # Only print new errors
-                    print(f"\rController error: {str(e)}")
-                    last_error = str(e)
-                controller = create_ps4_controller()
-                tbot.disable_motors()
+                print(f"\rController error: {str(e)}")
                 time.sleep(1)
             
             time.sleep(0.01)
+            
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
-        if 'stream_process' in globals():
-            stream_process.terminate()
-        tbot.clear_underlighting()
-        tbot.disable_motors()
     except Exception as e:
         print(f"\nProgram error: {str(e)}")
+    finally:
+        # Cleanup section
         if 'stream_process' in globals():
             stream_process.terminate()
+            stream_process.join(timeout=1)  # Wait for process to terminate
+            if stream_process.is_alive():
+                stream_process.kill()  # Force kill if still alive
+        cleanup_camera()  # Run cleanup again to ensure camera is freed
         tbot.clear_underlighting()
         tbot.disable_motors()
 
@@ -454,12 +440,14 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
-        stream_process.terminate()  # Stop the streaming process
-        tbot.clear_underlighting()
-        tbot.disable_motors()
-    except Exception as e:
-        print(f"\nProgram error: {str(e)}")
-        stream_process.terminate()  # Stop the streaming process
+    finally:
+        # Ensure cleanup happens even if program crashes
+        if 'stream_process' in globals():
+            stream_process.terminate()
+            stream_process.join(timeout=1)
+            if stream_process.is_alive():
+                stream_process.kill()
+        cleanup_camera()
         tbot.clear_underlighting()
         tbot.disable_motors()
 
