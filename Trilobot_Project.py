@@ -119,6 +119,12 @@ DANGER_DISTANCE = 20    # Red warning
 CAUTION_DISTANCE = 40   # Yellow warning
 SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
 
+# Add these constants for distance-based lighting
+BAND1 = 20   # Distance where lights show yellow
+BAND2 = 80   # Distance where lights show yellow-green
+BAND3 = 100  # Distance where lights show green
+YELLOW_GREEN_POINT = 192  # Amount of red for mid-point between green and yellow
+
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
         trilobot.set_underlights(group, color)
@@ -519,22 +525,50 @@ def update_party_lights(current_color_index):
     # Move to next color
     return (current_color_index + 1) % len(PARTY_COLORS)
 
+def colour_from_distance(distance):
+    """Returns a colour based on distance, fading smoothly between colors"""
+    r = 0
+    g = 0
+    b = 0
+
+    if distance > BAND3:
+        # Show green lights for distance over band3
+        g = 255
+    elif distance > BAND2:
+        # Fade from green-yellow to green
+        band_min = BAND2
+        band_max = BAND3
+        r = int(YELLOW_GREEN_POINT - YELLOW_GREEN_POINT * (distance - band_min) / (band_max - band_min))
+        g = 255
+    elif distance > BAND1:
+        # Fade from yellow to green-yellow
+        band_min = BAND1
+        band_max = BAND2
+        r = int(255 - (255 - YELLOW_GREEN_POINT) * (distance - band_min) / (band_max - band_min))
+        g = 255
+    elif distance > 0:
+        # Fade from red to yellow
+        band_max = BAND1 * BAND1
+        r = 255
+        g = int(255 * distance * BAND1 / band_max)
+    else:
+        # Red for closest distance
+        r = 255
+
+    return (r, g, b)
+
 def handle_distance_warning(distance):
     """Updates front underlights based on distance"""
     if distance > 0:  # Valid reading
-        if distance < DANGER_DISTANCE:
-            # Close - Red warning
-            tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)
-            tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)
-        elif distance < CAUTION_DISTANCE:
-            # Medium distance - Yellow warning
-            tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 255, 0, show=False)
-            tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 255, 0, show=False)
+        color = colour_from_distance(distance)
+        if distance < BAND3:  # Only show lights when object is within range
+            tbot.set_underlight(LIGHT_FRONT_LEFT, *color, show=False)
+            tbot.set_underlight(LIGHT_FRONT_RIGHT, *color, show=False)
         else:
-            # Far - Lights off
+            # Turn off lights when nothing is in range
             tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)
-    tbot.show_underlighting()
+        tbot.show_underlighting()
 
 # Main function
 def main():
@@ -600,9 +634,12 @@ def main():
                 
                 # Read distance sensor periodically if not in a light show mode
                 if not (knight_rider_active or party_mode_active):
-                    if current_time - last_sensor_read >= SENSOR_READ_INTERVAL:
-                        distance = tbot.read_distance(timeout=50, samples=3)
-                        handle_distance_warning(distance)
+                    if current_time - last_sensor_read >= 0.1:  # 100ms interval
+                        try:
+                            distance = tbot.read_distance()
+                            handle_distance_warning(distance)
+                        except Exception:
+                            pass  # Silently handle sensor errors
                         last_sensor_read = current_time
                 
                 # Update light effects
