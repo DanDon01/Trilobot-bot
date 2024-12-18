@@ -31,31 +31,22 @@ BLUE = (0, 0, 255)
 MAGENTA = (255, 0, 255)
 BLACK = (0, 0, 0)
 
-# Default values for the distance_reading() function
-COLLISION_THRESHOLD_CM  = 22
-MAX_NUM_READINGS        = 10
-MAX_TIMEOUT_SEC         = 25
-MAX_NUM_SAMPLES         = 3
+# Light show constants
+KNIGHT_RIDER_INTERVAL = 0.1
+PARTY_MODE_INTERVAL = 0.2
+BUTTON_DEBOUNCE_TIME = 0.3
 
-# Speed parametners
-NORMAL_LEFT_SPEED       = 0.65
-NORMAL_RIGHT_SPEED      = 0.65
-
-# Turning parameters
-TURN_SPEED              = 0.65
-TURN_TIME_SEC           = 0.55
-TURN_RIGHT_PERCENT      = 65
-
-# Backup parameters
-BACKUP_LOOPS            = 5
-BACKUP_TIME_SEC         = 0.15
-
-'''
-  Setup the underlighting
-'''
-DEFAULT_BLINK_COLOR     = BLUE
-DEFAULT_BLINK_RATE_SEC  = 0.25
-DEFAULT_NUM_CYCLES      = 1
+# Party mode colors
+PARTY_COLORS = [
+    RED,        # Red
+    GREEN,      # Green
+    BLUE,       # Blue
+    YELLOW,     # Yellow
+    MAGENTA,    # Magenta
+    CYAN,       # Cyan
+    (255, 128, 0),  # Orange
+    (128, 0, 255),  # Purple
+]
 
 # Light groups
 LEFT_LIGHTS             = [ LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT ]
@@ -328,26 +319,6 @@ def create_ps4_controller(stick_deadzone_percent=0.05):
         print(f"Controller initialization error: {str(e)}")
         return None
 
-# Function to sense the environment using the ultrasonic sensor
-def sense_environment(last_distance, threshold, timeout, samples, offset):
-    try:
-        distance = tbot.read_distance(timeout=timeout, samples=samples, offset=offset)
-        if abs(distance - last_distance) > threshold:
-            tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 255, 0, show=False)
-            tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 255, 0, show=False)
-        return distance
-    except Exception:
-        return last_distance  # Return last known distance instead of printing error
-
-# Function to handle obstacle detection and avoidance
-def handle_obstacles(distance):
-    if distance > 0 and distance < 20:
-        tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)      # Red
-        tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)      # Red
-    else:
-        tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)      # Black
-        tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)      # Black
-
 # Function to handle motor control based on controller input
 def handle_motor_control(controller, tank_steer):
     try:
@@ -574,6 +545,8 @@ def main():
     global stream_process, knight_rider_active, party_mode_active
     
     # Initialize light effect variables
+    knight_rider_active = False
+    party_mode_active = False
     knight_rider_led = 0
     knight_rider_direction = 1
     party_color_index = 0
@@ -630,17 +603,6 @@ def main():
                     controller, tank_steer, button_states
                 )
                 handle_motor_control(controller, tank_steer)
-                
-                # Read distance sensor periodically if not in a light show mode
-                if not (knight_rider_active or party_mode_active):
-                    if current_time - last_sensor_read >= 0.1:  # 100ms interval
-                        try:
-                            distance = tbot.read_distance()
-                            rgb_colour = colour_from_distance(distance)
-                            tbot.fill_underlighting(rgb_colour)
-                        except Exception:
-                            pass
-                        last_sensor_read = current_time
                 
                 # Update light effects
                 if knight_rider_active and (current_time - last_knight_rider_update) >= KNIGHT_RIDER_INTERVAL:
