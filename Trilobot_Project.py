@@ -11,6 +11,7 @@ import datetime
 from multiprocessing import Process
 from threading import Condition
 from http import server
+from time import sleep
 
 from picamera2 import Picamera2
 from picamera2.encoders import JpegEncoder
@@ -82,12 +83,10 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
-  for cy in range(nr_cycles):
-    trilobot.set_underlights(group, color)
-    sleep(blink_rate_sec)
-    trilobot.clear_underlights(group)
-
- return None
+    for cy in range(nr_cycles):
+        trilobot.set_underlights(group, color)
+        sleep(blink_rate_sec)
+        trilobot.clear_underlights(group)
 
 # Function to show a startup animation on the underlights
 def startup_animation():
@@ -387,20 +386,15 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
 
 def start_streaming():
-    with picamera.PiCamera(resolution='640x480', framerate=24) as camera:
-        global output
-        output = StreamingOutput()
-        camera.start_recording(output, format='mjpeg')
-        # Turn the top button LED on red while live 
-        tbot.set_button_led(led, TRUE)
-        try:
-            address = ('', 8000)
-            server = StreamingServer(address, StreamingHandler)
-            print("Starting server at http://<Raspberry_Pi_IP_Address>:8000")
-            server.serve_forever()
-        finally:
-            camera.stop_recording()
-             tbot.set_button_led(led, FALSE)
+    global output
+    try:
+        address = ('', 8000)
+        server = StreamingServer(address, StreamingHandler)
+        print("Starting server at http://<Raspberry_Pi_IP_Address>:8000")
+        server.serve_forever()
+    finally:
+        picam2.stop_recording()
+
 # Main function
 def main():
     startup_animation()
@@ -423,7 +417,8 @@ def main():
         if not controller.is_connected():
             controller.reconnect(10, True)
 
-        distance = sense_environment(last_distance)
+        distance = sense_environment(last_distance, threshold=5, timeout=timeout, 
+                                  samples=samples, offset=offset)
         handle_obstacles(distance)
         last_distance = distance
 
