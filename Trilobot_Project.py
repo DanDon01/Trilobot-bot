@@ -35,17 +35,18 @@ BLACK = (0, 0, 0)
 KNIGHT_RIDER_INTERVAL = 0.1
 PARTY_MODE_INTERVAL = 0.2
 BUTTON_DEBOUNCE_TIME = 0.3
+NUM_CYCLES = 1  # Number of cycles for light effects
 
 # Party mode colors
 PARTY_COLORS = [
-    RED,        # Red
-    GREEN,      # Green
-    BLUE,       # Blue
-    YELLOW,     # Yellow
-    MAGENTA,    # Magenta
-    CYAN,       # Cyan
-    (255, 128, 0),  # Orange
-    (128, 0, 255),  # Purple
+    (255, 0, 0),     # Red
+    (0, 255, 0),     # Green
+    (0, 0, 255),     # Blue
+    (255, 255, 0),   # Yellow
+    (255, 0, 255),   # Magenta
+    (0, 255, 255),   # Cyan
+    (255, 128, 0),   # Orange
+    (128, 0, 255),   # Purple
 ]
 
 # Light groups
@@ -459,17 +460,20 @@ def handle_underlighting(h, v, controller_connected):
 def update_knight_rider_lights(current_led, direction):
     """Updates the Knight Rider light effect"""
     tbot.clear_underlighting(show=False)
-    tbot.set_underlight(KNIGHT_RIDER_MAPPING[current_led], KNIGHT_RIDER_COLOR)
+    tbot.set_underlight(KNIGHT_RIDER_MAPPING[current_led], KNIGHT_RIDER_COLOR, show=True)
     
-    # Update position for next frame
-    if direction == 1:  # Moving right
-        if current_led >= NUM_UNDERLIGHTS - 1:
-            return current_led - 1, -1  # Start moving left
-        return current_led + 1, 1
-    else:  # Moving left
-        if current_led <= 0:
-            return current_led + 1, 1  # Start moving right
-        return current_led - 1, -1
+    # Update led position
+    current_led += direction
+    
+    # Change direction at ends
+    if current_led >= NUM_UNDERLIGHTS - 1:
+        current_led = NUM_UNDERLIGHTS - 2
+        direction = -1
+    elif current_led <= 0:
+        current_led = 1
+        direction = 1
+        
+    return current_led, direction
 
 def update_party_lights(current_color_index):
     """Updates the party mode lights"""
