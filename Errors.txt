@@ -1,48 +1,14 @@
-:14:58.475667402] [3600]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
-[4:14:59.211656176] [3601] ERROR V4L2 v4l2_device.cpp:351 'imx477 10-001a': Unable to set controls: Device or resource busy
-[4:14:59.406601042] [3601]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
-[4:14:59.415533564] [3601]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media2 and ISP device /dev/media0
-[4:14:59.415701115] [3601]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
-[4:14:59.498555194] [3600]  INFO Camera camera.cpp:1003 Pipeline handler in use by another process
+>>> %Run Trilobot_Project.py
+[4:20:10.747413503] [3681]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
+[4:20:10.913919861] [3683] ERROR V4L2 v4l2_device.cpp:351 'imx477 10-001a': Unable to set controls: Device or resource busy
+[4:20:11.154121605] [3683]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[4:20:11.182488007] [3683]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media2 and ISP device /dev/media0
+[4:20:11.182633735] [3683]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+[4:20:11.209133641] [3681]  INFO Camera camera.cpp:1003 Pipeline handler in use by another process
 Camera __init__ sequence did not complete.
-Process Process-1:
-Traceback (most recent call last):
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 269, in __init__
-    self._open_camera()
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 478, in _open_camera
-    self.camera.acquire()
-RuntimeError: Failed to acquire camera: Device or resource busy
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/usr/lib/python3.11/multiprocessing/process.py", line 314, in _bootstrap
-    self.run()
-  File "/usr/lib/python3.11/multiprocessing/process.py", line 108, in run
-    self._target(*self._args, **self._kwargs)
-  File "/home/Dan/Projects/Trilobot_Project.py", line 182, in start_camera_stream
-    picam2 = Picamera2()
-             ^^^^^^^^^^^
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 281, in __init__
-    raise RuntimeError("Camera __init__ sequence did not complete.")
-RuntimeError: Camera __init__ sequence did not complete.
+Streaming setup error: Camera __init__ sequence did not complete.
 
 Waiting for PS4 controller connection...
 
-Program error: SimpleController.__init__() got an unexpected keyword argument 'debug'
-Traceback (most recent call last):
-  File "/home/Dan/Projects/Trilobot_Project.py", line 398, in <module>
-    main()
-  File "/home/Dan/Projects/Trilobot_Project.py", line 344, in main
-    controller = create_ps4_controller()
-  File "/home/Dan/Projects/Trilobot_Project.py", line 208, in create_ps4_controller
-    controller = SimpleController("Wireless Controller", exact_match=True, debug=False)
-TypeError: SimpleController.__init__() got an unexpected keyword argument 'debug'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/Dan/Projects/Trilobot_Project.py", line 406, in <module>
-    stream_process.terminate()  # Stop the streaming process
-NameError: name 'stream_process' is not defined
+Program error: SimpleController.register_button() got an unexpected keyword argument 'silent'
 >>> 
