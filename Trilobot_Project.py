@@ -175,54 +175,64 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-
-picam2 = Picamera2()
-picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
-output = StreamingOutput()
-encoder = MJPEGEncoder()
-picam2.start_recording(encoder, FileOutput(output))
-
-try:
-    address = ('', 7123)
-    server = StreamingServer(address, StreamingHandler)
-    server.serve_forever()
-finally:
-    picam2.stop_recording()
+def start_camera_stream():
+    global picam2, output
+    
+    # Initialize camera
+    picam2 = Picamera2()
+    picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
+    output = StreamingOutput()
+    
+    # Start the camera
+    picam2.start_preview()
+    encoder = MJPEGEncoder()
+    picam2.start_recording(encoder, FileOutput(output))
+    
+    # Start the streaming server
+    try:
+        address = ('', 8000)  # Port 8000
+        server = StreamingServer(address, StreamingHandler)
+        print(f"\rStreaming started - visit http://<IP-address>:8000")
+        server.serve_forever()
+    except Exception as e:
+        print(f"\rStreaming error: {str(e)}")
+    finally:
+        picam2.stop_recording()
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nWaiting for PS4 controller connection...")
-    print("Please press the PS button on your controller to connect")
-    print("Make sure your controller is in pairing mode (hold Share + PS button until light bar flashes)")
     
-    controller = SimpleController("Wireless Controller", exact_match=True)
+    # Create controller with debug=False to suppress axis/button messages
+    controller = SimpleController("Wireless Controller", exact_match=True, debug=False)
     
-    # Button and axis registrations for PS4 Controller
-    controller.register_button("Cross", 304, alt_name="A")
-    controller.register_button("Circle", 305, alt_name="B")
-    controller.register_button("Square", 308, alt_name="X")
-    controller.register_button("Triangle", 307, alt_name="Y")
-    controller.register_button("Options", 315, alt_name='Start')
-    controller.register_button("Share", 314, alt_name='Select')
-    controller.register_button("PS", 316, alt_name='Home')
-    controller.register_button("L1", 310, alt_name="LB")
-    controller.register_button("L2", 312, alt_name="LT")
-    controller.register_button("R1", 311, alt_name="RB")
-    controller.register_button("R2", 313, alt_name="RT")
-    controller.register_axis_as_button("Left", 16, -1, 0)
-    controller.register_axis_as_button("Right", 16, 1, 0)
-    controller.register_axis_as_button("Up", 17, -1, 0)
-    controller.register_axis_as_button("Down", 17, 1, 0)
-    controller.register_button("L3", 317, alt_name='LS')
-    controller.register_button("R3", 318, alt_name='RS')
+    # Register buttons and axes silently
+    controller.register_button("Cross", 304, alt_name="A", silent=True)
+    controller.register_button("Circle", 305, alt_name="B", silent=True)
+    controller.register_button("Square", 308, alt_name="X", silent=True)
+    controller.register_button("Triangle", 307, alt_name="Y", silent=True)
+    controller.register_button("Options", 315, alt_name='Start', silent=True)
+    controller.register_button("Share", 314, alt_name='Select', silent=True)
+    controller.register_button("PS", 316, alt_name='Home', silent=True)
+    controller.register_button("L1", 310, alt_name="LB", silent=True)
+    controller.register_button("L2", 312, alt_name="LT", silent=True)
+    controller.register_button("R1", 311, alt_name="RB", silent=True)
+    controller.register_button("R2", 313, alt_name="RT", silent=True)
+    controller.register_axis_as_button("Left", 16, -1, 0, silent=True)
+    controller.register_axis_as_button("Right", 16, 1, 0, silent=True)
+    controller.register_axis_as_button("Up", 17, -1, 0, silent=True)
+    controller.register_axis_as_button("Down", 17, 1, 0, silent=True)
+    controller.register_button("L3", 317, alt_name='LS', silent=True)
+    controller.register_button("R3", 318, alt_name='RS', silent=True)
 
-    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT")
-    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT")
+    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
+    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
+    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
+    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent, silent=True)
+    controller.register_trigger_axis("L2", 2, 0, 255, alt_name="LT", silent=True)
+    controller.register_trigger_axis("R2", 5, 0, 255, alt_name="RT", silent=True)
+    
     return controller
 
 # Function to sense the environment using the ultrasonic sensor
@@ -270,8 +280,8 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
             tank_steer = True
             print("\rTank Steering Enabled  ")
 
+        # Only handle button presses without printing messages
         if controller.read_button("Circle") and not button_pressed_last_frame:
-            print("\rCircle button pressed  ")
             capture_image_with_raspistill()
             button_pressed_last_frame = True
         elif controller.read_button("Square"):
@@ -284,7 +294,7 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
             button_pressed_last_frame = False
 
     except ValueError:
-        pass  # Silently handle button reading errors
+        pass
 
     return tank_steer, button_pressed_last_frame
 
@@ -322,126 +332,12 @@ def handle_underlighting(h, v, controller_connected):
         v += math.pi / 200
     return h, v
 
-# Streaming server setup
-PAGE = """\
-<html>
-<head>
-<title>Raspberry Pi - Camera Stream</title>
-</head>
-<body>
-<h1>Raspberry Pi - Camera Stream</h1>
-<img src="stream.mjpg" width="640" height="480" />
-</body>
-</html>
-"""
-
-class StreamingOutput(object):
-    def __init__(self):
-        self.frame = None
-        self.buffer = io.BytesIO()
-        self.condition = Condition()
-
-    def write(self, buf):
-        if buf.startswith(b'\xff\xd8'):
-            # New frame, copy the existing buffer's content and notify all clients it's available
-            self.buffer.truncate()
-            with self.condition:
-                self.frame = self.buffer.getvalue()
-                self.condition.notify_all()
-            self.buffer.seek(0)
-        return self.buffer.write(buf)
-
-class StreamingHandler(server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(PAGE.encode('utf-8'))
-        elif self.path == '/stream.mjpg':
-            self.send_response(200)
-            self.send_header('Age', 0)
-            self.send_header('Cache-Control', 'no-cache, private')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
-            self.end_headers()
-            try:
-                while True:
-                    with output.condition:
-                        output.condition.wait()
-                        frame = output.frame
-                    self.wfile.write(b'--FRAME\r\n')
-                    self.send_header('Content-Type', 'image/jpeg')
-                    self.send_header('Content-Length', len(frame))
-                    self.end_headers()
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
-            except Exception as e:
-                logging.warning(
-                    "Removed streaming client %s: %s",
-                    self.client_address, str(e))
-        else:
-            self.send_error(404)
-            self.end_headers()
-
-class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-def start_streaming():
-    global output
-    try:
-        address = ('', 8000)
-        server = StreamingServer(address, StreamingHandler)
-        print("Starting server at http://<Raspberry_Pi_IP_Address>:8000")
-        server.serve_forever()
-    finally:
-        picam2.stop_recording()
-
-def attempt_controller_connection(controller, retry_interval=5):
-    """Attempt to connect to the controller with minimal message spam"""
-    last_attempt_time = 0
-    last_message_time = 0
-    message_interval = 10  # Show connection instructions every 10 seconds
-    
-    # Show initial connection instructions once
-    print("\n" + "="*50)
-    print("PS4 Controller Connection Instructions:")
-    print("1. Make sure your controller is charged")
-    print("2. To pair a new controller:")
-    print("   - Hold SHARE + PS button until light bar flashes rapidly")
-    print("3. For already paired controller:")
-    print("   - Simply press the PS button")
-    print("="*50 + "\n")
-    
-    while not controller.is_connected():
-        current_time = time.time()
-        
-        # Show periodic "Waiting for connection" message
-        if current_time - last_message_time >= message_interval:
-            print("\rWaiting for controller connection...", end='', flush=True)
-            last_message_time = current_time
-        
-        # Attempt reconnection periodically
-        if current_time - last_attempt_time >= retry_interval:
-            try:
-                controller.reconnect(timeout=2, silent=True)
-                if controller.is_connected():
-                    print("\nController connected successfully!")
-                    tbot.fill_underlighting(0, 255, 0)  # Green to indicate success
-                    time.sleep(1)
-                    return True
-            except Exception:
-                pass
-            
-            last_attempt_time = current_time
-        
-        time.sleep(0.1)  # Prevent CPU spinning
-    
-    return False
-
 # Main function
 def main():
+    # Start the camera stream in a separate process
+    stream_process = Process(target=start_camera_stream)
+    stream_process.start()
+    
     startup_animation()
     
     # Initialize variables
@@ -502,10 +398,12 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
+        stream_process.terminate()  # Stop the streaming process
         tbot.clear_underlighting()
         tbot.disable_motors()
     except Exception as e:
         print(f"\nProgram error: {str(e)}")
+        stream_process.terminate()  # Stop the streaming process
         tbot.clear_underlighting()
         tbot.disable_motors()
 
