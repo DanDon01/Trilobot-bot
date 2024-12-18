@@ -227,11 +227,14 @@ def create_ps4_controller(stick_deadzone_percent=0.1):
 
 # Function to sense the environment using the ultrasonic sensor
 def sense_environment(last_distance, threshold, timeout, samples, offset):
-    distance = tbot.read_distance(timeout=timeout, samples=samples, offset=offset)
-    if abs(distance - last_distance) > threshold:
-        tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 255, 0, show=False)      # Green
-        tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 255, 0, show=False)      # Green
-    return distance
+    try:
+        distance = tbot.read_distance(timeout=timeout, samples=samples, offset=offset)
+        if abs(distance - last_distance) > threshold:
+            tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 255, 0, show=False)
+            tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 255, 0, show=False)
+        return distance
+    except Exception:
+        return last_distance  # Return last known distance instead of printing error
 
 # Function to handle obstacle detection and avoidance
 def handle_obstacles(distance):
@@ -262,29 +265,26 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
     try:
         if controller.read_button("L1") and tank_steer:
             tank_steer = False
-            print("Tank Steering Disabled")
+            print("\rTank Steering Disabled ")
         elif controller.read_button("R1") and not tank_steer:
             tank_steer = True
-            print("Tank Steering Enabled")
+            print("\rTank Steering Enabled  ")
 
         if controller.read_button("Circle") and not button_pressed_last_frame:
-            print("Circle button pressed - Capturing image")
+            print("\rCircle button pressed  ")
             capture_image_with_raspistill()
             button_pressed_last_frame = True
         elif controller.read_button("Square"):
-            print("Square button pressed")
             function_for_square_button()
         elif controller.read_button("Triangle"):
-            print("Triangle button pressed")
             function_for_triangle_button()
         elif controller.read_button("Cross"):
-            print("Cross button pressed")
             function_for_cross_button()
         else:
             button_pressed_last_frame = False
 
     except ValueError:
-        print("Button not available or error in reading button state")
+        pass  # Silently handle button reading errors
 
     return tank_steer, button_pressed_last_frame
 
@@ -453,51 +453,48 @@ def main():
     v = 0
     last_connection_attempt = 0
     connection_retry_interval = 5
-    connection_status_shown = False
+    last_status = None  # Track last connection status
     
     print("\nStarting controller connection process...")
     
     while True:
         current_time = time.time()
+        current_status = controller.is_connected()
         
-        # Handle controller connection state
-        if not controller.is_connected():
-            if not connection_status_shown:
-                print("\nController disconnected. Attempting to reconnect...")
-                connection_status_shown = True
-            
+        # Only print status when it changes
+        if current_status != last_status:
+            if current_status:
+                print("\rController connected    ")
+                tbot.fill_underlighting(0, 255, 0)  # Green
+                time.sleep(0.5)
+            else:
+                print("\rController disconnected ")
+                tbot.fill_underlighting(127, 0, 0)  # Red
+            last_status = current_status
+        
+        if not current_status:
             if current_time - last_connection_attempt >= connection_retry_interval:
                 attempt_controller_connection(controller)
                 last_connection_attempt = current_time
-            
-            # Show disconnected state with red underlighting
-            tbot.fill_underlighting(127, 0, 0)  # Dim red when disconnected
             time.sleep(0.1)
             continue
         
-        # Reset connection status flag when connected
-        if connection_status_shown:
-            connection_status_shown = False
-        
         try:
             controller.update()
-            
-            # Handle controller input and motor control
             tank_steer, button_pressed_last_frame = handle_controller_input(
                 controller, tank_steer, button_pressed_last_frame
             )
             handle_motor_control(controller, tank_steer)
-            
-            # Update underlighting based on connected state
             h, v = handle_underlighting(h, v, True)
             
         except Exception as e:
-            print(f"\nController error: {str(e)}")
+            if str(e) != last_error:  # Only print new errors
+                print(f"\rController error: {str(e)}")
+                last_error = str(e)
             controller = create_ps4_controller()
             tbot.disable_motors()
             time.sleep(1)
-            connection_status_shown = False
-            
+        
         time.sleep(0.01)
 
 if __name__ == "__main__":
