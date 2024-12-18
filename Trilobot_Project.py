@@ -115,15 +115,10 @@ knight_rider_active = False
 party_mode_active = False
 
 # Distance thresholds in cm
-DANGER_DISTANCE = 20    # Red warning
-CAUTION_DISTANCE = 40   # Yellow warning
-SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
-
-# Add these constants for distance-based lighting
 BAND1 = 20   # Distance where lights show red
 BAND2 = 40   # Distance where lights show yellow
 BAND3 = 100  # Distance where lights show green
-YELLOW_GREEN_POINT = 192  # Amount of red for mid-point between green and yellow
+SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
 
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
@@ -568,12 +563,8 @@ def handle_distance_warning(distance):
             # Medium distance - Yellow
             tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 255, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 255, 0, show=False)
-        elif distance < BAND3:
-            # Further away - Green
-            tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 255, 0, show=False)
-            tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 255, 0, show=False)
         else:
-            # Too far - Lights off
+            # Far - Lights off
             tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)
         tbot.show_underlighting()
@@ -642,18 +633,13 @@ def main():
                 
                 # Read distance sensor periodically if not in a light show mode
                 if not (knight_rider_active or party_mode_active):
-                    if current_time - last_sensor_read >= 0.1:  # 100ms interval
+                    if current_time - last_sensor_read >= SENSOR_READ_INTERVAL:
                         try:
-                            # Add debug LED to show we're reading the sensor
-                            tbot.set_button_led(0, True)  # Turn on first button LED while reading
-                            distance = tbot.read_distance()
+                            # Use settings from the example for reliable readings
+                            distance = tbot.read_distance(timeout=25, samples=3)
                             handle_distance_warning(distance)
-                            tbot.set_button_led(0, False)  # Turn off LED after reading
-                        except Exception as e:
-                            # Turn on second button LED if there's an error
-                            tbot.set_button_led(1, True)
-                            time.sleep(0.1)
-                            tbot.set_button_led(1, False)
+                        except Exception:
+                            pass
                         last_sensor_read = current_time
                 
                 # Update light effects
