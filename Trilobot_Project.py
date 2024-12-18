@@ -96,6 +96,20 @@ KNIGHT_RIDER_MAPPING = [
     LIGHT_REAR_RIGHT
 ]
 
+# Add these constants
+BUTTON_DEBOUNCE_TIME = 0.3  # Time in seconds to wait between button presses
+PARTY_MODE_INTERVAL = 0.2  # Time between color changes
+PARTY_COLORS = [
+    RED,        # Red
+    GREEN,      # Green
+    BLUE,       # Blue
+    YELLOW,     # Yellow
+    MAGENTA,    # Magenta
+    CYAN,       # Cyan
+    (255, 128, 0),  # Orange
+    (128, 0, 255),  # Purple
+]
+
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
         trilobot.set_underlights(group, color)
@@ -361,8 +375,11 @@ def handle_motor_control(controller, tank_steer):
     except ValueError:
         tbot.disable_motors()
 
-def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
+def handle_controller_input(controller, tank_steer, button_states):
+    current_time = time.time()
+    
     try:
+        # Tank steer toggle
         if controller.read_button("L1") and tank_steer:
             tank_steer = False
             print("\rTank Steering Disabled ")
@@ -370,23 +387,49 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
             tank_steer = True
             print("\rTank Steering Enabled  ")
 
-        # Only handle button presses without printing messages
-        if controller.read_button("Circle") and not button_pressed_last_frame:
-            capture_image_with_raspistill()
-            button_pressed_last_frame = True
-        elif controller.read_button("Square") and not button_pressed_last_frame:
-            global knight_rider_active
-            knight_rider_active = not knight_rider_active
-            if not knight_rider_active:
-                tbot.clear_underlighting()
-            button_pressed_last_frame = True
+        # Handle Square button with debouncing (Knight Rider effect)
+        if controller.read_button("Square"):
+            if not button_states['square_pressed'] and (current_time - button_states['last_square_time']) > BUTTON_DEBOUNCE_TIME:
+                button_states['square_pressed'] = True
+                button_states['last_square_time'] = current_time
+                # Toggle Knight Rider effect
+                global knight_rider_active, party_mode_active
+                knight_rider_active = not knight_rider_active
+                if knight_rider_active:
+                    party_mode_active = False
+                if not knight_rider_active:
+                    tbot.clear_underlighting()
         else:
-            button_pressed_last_frame = False
+            button_states['square_pressed'] = False
+
+        # Handle Triangle button with debouncing (Party Mode)
+        if controller.read_button("Triangle"):
+            if not button_states['triangle_pressed'] and (current_time - button_states['last_triangle_time']) > BUTTON_DEBOUNCE_TIME:
+                button_states['triangle_pressed'] = True
+                button_states['last_triangle_time'] = current_time
+                # Toggle Party Mode
+                global party_mode_active
+                party_mode_active = not party_mode_active
+                if party_mode_active:
+                    knight_rider_active = False
+                if not party_mode_active:
+                    tbot.clear_underlighting()
+        else:
+            button_states['triangle_pressed'] = False
+
+        # Handle Circle button with debouncing
+        if controller.read_button("Circle"):
+            if not button_states['circle_pressed'] and (current_time - button_states['last_circle_time']) > BUTTON_DEBOUNCE_TIME:
+                button_states['circle_pressed'] = True
+                button_states['last_circle_time'] = current_time
+                capture_image_with_raspistill()
+        else:
+            button_states['circle_pressed'] = False
 
     except ValueError:
         pass
 
-    return tank_steer, button_pressed_last_frame
+    return tank_steer, button_states
 
 def function_for_triangle_button():
     print("Triangle button function activated")
@@ -438,15 +481,45 @@ def update_knight_rider_lights(current_led, direction):
             return current_led + 1, 1  # Start moving right
         return current_led - 1, -1
 
+def update_party_lights(current_color_index):
+    """Updates the party mode lights"""
+    color = PARTY_COLORS[current_color_index]
+    # Alternate between all lights and every other light
+    if current_color_index % 2 == 0:
+        # All lights same color
+        tbot.set_underlights(range(NUM_UNDERLIGHTS), color)
+    else:
+        # Alternating lights
+        tbot.clear_underlighting(show=False)
+        for i in range(0, NUM_UNDERLIGHTS, 2):
+            tbot.set_underlight(i, color, show=False)
+    tbot.show_underlighting()
+    
+    # Move to next color
+    return (current_color_index + 1) % len(PARTY_COLORS)
+
 # Main function
 def main():
-    global stream_process, knight_rider_active
+    global stream_process, knight_rider_active, party_mode_active
     
-    # Initialize Knight Rider variables
+    # Initialize light effect variables
     knight_rider_active = False
+    party_mode_active = False
     knight_rider_led = 0
     knight_rider_direction = 1
+    party_color_index = 0
     last_knight_rider_update = time.time()
+    last_party_update = time.time()
+    
+    # Initialize button states
+    button_states = {
+        'square_pressed': False,
+        'last_square_time': 0,
+        'triangle_pressed': False,
+        'last_triangle_time': 0,
+        'circle_pressed': False,
+        'last_circle_time': 0
+    }
     
     # Clean up any existing camera processes first
     cleanup_camera()
@@ -459,46 +532,36 @@ def main():
         
         startup_animation()
         
-        # Initialize controller with retry loop
-        controller = None
-        retry_count = 0
-        max_retries = 5
-        
-        while controller is None and retry_count < max_retries:
-            print(f"\nAttempting to connect to controller (attempt {retry_count + 1}/{max_retries})")
-            controller = create_ps4_controller()
-            if controller is None:
-                retry_count += 1
-                time.sleep(2)
-        
+        # Initialize controller
+        controller = create_ps4_controller()
         if controller is None:
-            print("\nFailed to connect to controller after multiple attempts.")
-            print("Please check that:")
-            print("1. The controller is charged")
-            print("2. The controller is properly paired with the Raspberry Pi")
-            print("3. No other devices are using the controller")
             raise Exception("Controller connection failed")
         
         print("\nController connected and ready!")
         tank_steer = False
-        button_pressed_last_frame = False
         
         # Main control loop
         while True:
             try:
                 controller.update(debug=False)
-                tank_steer, button_pressed_last_frame = handle_controller_input(
-                    controller, tank_steer, button_pressed_last_frame
+                tank_steer, button_states = handle_controller_input(
+                    controller, tank_steer, button_states
                 )
                 handle_motor_control(controller, tank_steer)
                 
-                # Update Knight Rider effect if active
                 current_time = time.time()
+                
+                # Update Knight Rider effect if active
                 if knight_rider_active and (current_time - last_knight_rider_update) >= KNIGHT_RIDER_INTERVAL:
                     knight_rider_led, knight_rider_direction = update_knight_rider_lights(
                         knight_rider_led, knight_rider_direction
                     )
                     last_knight_rider_update = current_time
+                
+                # Update Party Mode if active
+                if party_mode_active and (current_time - last_party_update) >= PARTY_MODE_INTERVAL:
+                    party_color_index = update_party_lights(party_color_index)
+                    last_party_update = current_time
                 
             except Exception as e:
                 print(f"\rController error: {str(e)}")
