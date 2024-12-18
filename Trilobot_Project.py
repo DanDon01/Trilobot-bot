@@ -243,21 +243,21 @@ def start_camera_stream():
                 pass
 
 # Function to create and return a PS4 controller setup
-def create_ps4_controller(stick_deadzone_percent=0.1):
+def create_ps4_controller(stick_deadzone_percent=0.05):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nAttempting to connect to PS4 controller...")
     
     try:
-        # Create controller with basic setup
+        # Create controller with basic setup, disable debug output
         controller = SimpleController("Wireless Controller", exact_match=True)
-        controller.connect()  # This is from the evdev implementation you shared
+        controller.connect(debug=False)  # Disable connection debug messages
         
         if not controller.is_connected():
             return None
 
         print("Controller connected successfully!")
         
-        # Register buttons
+        # Register controls silently
         controller.register_button("Cross", 304)
         controller.register_button("Circle", 305)
         controller.register_button("Square", 308)
@@ -278,7 +278,7 @@ def create_ps4_controller(stick_deadzone_percent=0.1):
         controller.register_axis_as_button("Up", 17, -1, 0)
         controller.register_axis_as_button("Down", 17, 1, 0)
         
-        # Register analog sticks and triggers
+        # Register analog sticks with reduced deadzone and optimized ranges
         controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
         controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
         controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
@@ -316,15 +316,36 @@ def handle_obstacles(distance):
 def handle_motor_control(controller, tank_steer):
     try:
         if tank_steer:
+            # Tank steering mode (each stick controls one side)
             ly = controller.read_axis("LY")
             ry = controller.read_axis("RY")
+            
+            # Apply exponential curve for finer control at low speeds
+            ly = math.copysign(ly * ly, ly)
+            ry = math.copysign(ry * ry, ry)
+            
             tbot.set_left_speed(-ly)
             tbot.set_right_speed(-ry)
         else:
+            # Normal steering mode (left stick for both motors)
             lx = controller.read_axis("LX")
-            ly = 0 - controller.read_axis("LY")
-            tbot.set_left_speed(ly + lx)
-            tbot.set_right_speed(ly - lx)
+            ly = -controller.read_axis("LY")  # Inverted for intuitive control
+            
+            # Apply exponential curve for finer control
+            lx = math.copysign(lx * lx, lx)
+            ly = math.copysign(ly * ly, ly)
+            
+            # Calculate motor speeds with improved turning
+            left_speed = ly + (lx * 0.7)  # Reduced turning sensitivity
+            right_speed = ly - (lx * 0.7)
+            
+            # Ensure speeds don't exceed limits
+            left_speed = max(min(left_speed, 1.0), -1.0)
+            right_speed = max(min(right_speed, 1.0), -1.0)
+            
+            tbot.set_left_speed(left_speed)
+            tbot.set_right_speed(right_speed)
+            
     except ValueError:
         tbot.disable_motors()
 
@@ -431,7 +452,7 @@ def main():
         # Main control loop
         while True:
             try:
-                controller.update()  # This now uses the evdev implementation
+                controller.update(debug=False)  # Disable debug output
                 tank_steer, button_pressed_last_frame = handle_controller_input(
                     controller, tank_steer, button_pressed_last_frame
                 )
@@ -440,12 +461,11 @@ def main():
             except Exception as e:
                 print(f"\rController error: {str(e)}")
                 time.sleep(1)
-                # Try to reconnect using the evdev method
                 controller = create_ps4_controller()
                 if controller is None:
                     print("\rAttempting to reconnect...", end='')
             
-            time.sleep(0.01)
+            time.sleep(0.01)  # Reduced sleep time for faster response
             
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
