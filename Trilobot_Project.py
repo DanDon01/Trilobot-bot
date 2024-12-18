@@ -110,6 +110,10 @@ PARTY_COLORS = [
     (128, 0, 255),  # Purple
 ]
 
+# Add these at the top of your file with other global variables
+knight_rider_active = False
+party_mode_active = False
+
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
         trilobot.set_underlights(group, color)
@@ -376,6 +380,7 @@ def handle_motor_control(controller, tank_steer):
         tbot.disable_motors()
 
 def handle_controller_input(controller, tank_steer, button_states):
+    global knight_rider_active, party_mode_active  # Declare both globals at start of function
     current_time = time.time()
     
     try:
@@ -392,8 +397,6 @@ def handle_controller_input(controller, tank_steer, button_states):
             if not button_states['square_pressed'] and (current_time - button_states['last_square_time']) > BUTTON_DEBOUNCE_TIME:
                 button_states['square_pressed'] = True
                 button_states['last_square_time'] = current_time
-                # Toggle Knight Rider effect
-                global knight_rider_active, party_mode_active
                 knight_rider_active = not knight_rider_active
                 if knight_rider_active:
                     party_mode_active = False
@@ -407,8 +410,6 @@ def handle_controller_input(controller, tank_steer, button_states):
             if not button_states['triangle_pressed'] and (current_time - button_states['last_triangle_time']) > BUTTON_DEBOUNCE_TIME:
                 button_states['triangle_pressed'] = True
                 button_states['last_triangle_time'] = current_time
-                # Toggle Party Mode
-                global party_mode_active
                 party_mode_active = not party_mode_active
                 if party_mode_active:
                     knight_rider_active = False
@@ -500,11 +501,9 @@ def update_party_lights(current_color_index):
 
 # Main function
 def main():
-    global stream_process, knight_rider_active, party_mode_active
+    global stream_process  # We don't need to declare knight_rider_active and party_mode_active here anymore
     
     # Initialize light effect variables
-    knight_rider_active = False
-    party_mode_active = False
     knight_rider_led = 0
     knight_rider_direction = 1
     party_color_index = 0
