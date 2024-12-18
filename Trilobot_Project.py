@@ -380,7 +380,7 @@ def handle_motor_control(controller, tank_steer):
         tbot.disable_motors()
 
 def handle_controller_input(controller, tank_steer, button_states):
-    global knight_rider_active, party_mode_active  # Declare both globals at start of function
+    global knight_rider_active, party_mode_active
     current_time = time.time()
     
     try:
@@ -391,6 +391,18 @@ def handle_controller_input(controller, tank_steer, button_states):
         elif controller.read_button("R1") and not tank_steer:
             tank_steer = True
             print("\rTank Steering Enabled  ")
+
+        # Handle Cross button with debouncing (Button LEDs)
+        if controller.read_button("Cross"):
+            if not button_states['cross_pressed'] and (current_time - button_states['last_cross_time']) > BUTTON_DEBOUNCE_TIME:
+                button_states['cross_pressed'] = True
+                button_states['last_cross_time'] = current_time
+                # Toggle button LEDs
+                button_states['button_leds_on'] = not button_states['button_leds_on']
+                for led in range(NUM_BUTTONS):
+                    tbot.set_button_led(led, button_states['button_leds_on'])
+        else:
+            button_states['cross_pressed'] = False
 
         # Handle Square button with debouncing (Knight Rider effect)
         if controller.read_button("Square"):
@@ -520,8 +532,15 @@ def main():
         'triangle_pressed': False,
         'last_triangle_time': 0,
         'circle_pressed': False,
-        'last_circle_time': 0
+        'last_circle_time': 0,
+        'cross_pressed': False,
+        'last_cross_time': 0,
+        'button_leds_on': False
     }
+    
+    # Make sure button LEDs start off
+    for led in range(NUM_BUTTONS):
+        tbot.set_button_led(led, False)
     
     # Clean up any existing camera processes first
     cleanup_camera()
@@ -587,6 +606,9 @@ def main():
         cleanup_camera()
         tbot.clear_underlighting()
         tbot.disable_motors()
+        # Turn off all button LEDs when program ends
+        for led in range(NUM_BUTTONS):
+            tbot.set_button_led(led, False)
 
 if __name__ == "__main__":
     try:
