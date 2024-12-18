@@ -117,7 +117,6 @@ party_mode_active = False
 # Distance thresholds in cm
 BAND1 = 20   # Distance where lights show red
 BAND2 = 40   # Distance where lights show yellow
-BAND3 = 100  # Distance where lights show green
 SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
 
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
@@ -554,9 +553,16 @@ def colour_from_distance(distance):
 
 def handle_distance_warning(distance):
     """Updates front underlights based on distance"""
+    # Test LED - always set to red to verify function is being called
+    tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)
+    tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)
+    tbot.show_underlighting()
+    
+    # Uncomment this once we verify the function is being called
+    """
     if distance > 0:  # Valid reading
         if distance < BAND1:
-            # Very close - Red
+            # Close - Red
             tbot.set_underlight(LIGHT_FRONT_LEFT, 255, 0, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 255, 0, 0, show=False)
         elif distance < BAND2:
@@ -568,6 +574,7 @@ def handle_distance_warning(distance):
             tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)
         tbot.show_underlighting()
+    """
 
 # Main function
 def main():
@@ -635,11 +642,11 @@ def main():
                 if not (knight_rider_active or party_mode_active):
                     if current_time - last_sensor_read >= SENSOR_READ_INTERVAL:
                         try:
-                            # Use settings from the example for reliable readings
                             distance = tbot.read_distance(timeout=25, samples=3)
                             handle_distance_warning(distance)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            # Temporarily print any errors
+                            print(f"Distance sensor error: {str(e)}")
                         last_sensor_read = current_time
                 
                 # Update light effects
