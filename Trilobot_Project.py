@@ -17,6 +17,8 @@ from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
+from evdev import InputDevice, ecodes, list_devices
+
 # Initialize the Trilobot
 tbot = Trilobot()
 
@@ -245,56 +247,50 @@ def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nAttempting to connect to PS4 controller...")
     
-    # Try to find the controller by checking available input devices
     try:
-        # Simple direct connection attempt
-        controller = SimpleController(device_id=0)  # Try first game controller
+        # Create controller with basic setup
+        controller = SimpleController("Wireless Controller", exact_match=True)
+        controller.connect()  # This is from the evdev implementation you shared
+        
         if not controller.is_connected():
-            # Try next device
-            controller = SimpleController(device_id=1)
-    except Exception:
-        try:
-            # Fallback to direct name
-            controller = SimpleController("Wireless Controller")
-        except Exception:
             return None
 
-    if controller is None or not controller.is_connected():
-        print("Could not connect to controller")
+        print("Controller connected successfully!")
+        
+        # Register buttons
+        controller.register_button("Cross", 304)
+        controller.register_button("Circle", 305)
+        controller.register_button("Square", 308)
+        controller.register_button("Triangle", 307)
+        controller.register_button("Options", 315)
+        controller.register_button("Share", 314)
+        controller.register_button("PS", 316)
+        controller.register_button("L1", 310)
+        controller.register_button("L2", 312)
+        controller.register_button("R1", 311)
+        controller.register_button("R2", 313)
+        controller.register_button("L3", 317)
+        controller.register_button("R3", 318)
+        
+        # Register D-pad
+        controller.register_axis_as_button("Left", 16, -1, 0)
+        controller.register_axis_as_button("Right", 16, 1, 0)
+        controller.register_axis_as_button("Up", 17, -1, 0)
+        controller.register_axis_as_button("Down", 17, 1, 0)
+        
+        # Register analog sticks and triggers
+        controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
+        controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
+        controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
+        controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
+        controller.register_axis("L2", 2, 0, 255)
+        controller.register_axis("R2", 5, 0, 255)
+        
+        return controller
+        
+    except Exception as e:
+        print(f"Controller initialization error: {str(e)}")
         return None
-
-    print("Controller connected successfully!")
-    
-    # Register controls
-    controller.register_button("Cross", 304)
-    controller.register_button("Circle", 305)
-    controller.register_button("Square", 308)
-    controller.register_button("Triangle", 307)
-    controller.register_button("Options", 315)
-    controller.register_button("Share", 314)
-    controller.register_button("PS", 316)
-    controller.register_button("L1", 310)
-    controller.register_button("L2", 312)
-    controller.register_button("R1", 311)
-    controller.register_button("R2", 313)
-    controller.register_button("L3", 317)
-    controller.register_button("R3", 318)
-    
-    # Register D-pad
-    controller.register_axis_as_button("Left", 16, -1, 0)
-    controller.register_axis_as_button("Right", 16, 1, 0)
-    controller.register_axis_as_button("Up", 17, -1, 0)
-    controller.register_axis_as_button("Down", 17, 1, 0)
-    
-    # Register analog sticks and triggers
-    controller.register_axis("LX", 0, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("LY", 1, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RX", 3, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("RY", 4, 0, 255, deadzone_percent=stick_deadzone_percent)
-    controller.register_axis("L2", 2, 0, 255)
-    controller.register_axis("R2", 5, 0, 255)
-    
-    return controller
 
 # Function to sense the environment using the ultrasonic sensor
 def sense_environment(last_distance, threshold, timeout, samples, offset):
@@ -411,7 +407,7 @@ def main():
         # Initialize controller with retry loop
         controller = None
         retry_count = 0
-        max_retries = 3
+        max_retries = 5
         
         while controller is None and retry_count < max_retries:
             print(f"\nAttempting to connect to controller (attempt {retry_count + 1}/{max_retries})")
@@ -435,7 +431,7 @@ def main():
         # Main control loop
         while True:
             try:
-                controller.update()
+                controller.update()  # This now uses the evdev implementation
                 tank_steer, button_pressed_last_frame = handle_controller_input(
                     controller, tank_steer, button_pressed_last_frame
                 )
@@ -444,7 +440,7 @@ def main():
             except Exception as e:
                 print(f"\rController error: {str(e)}")
                 time.sleep(1)
-                # Try to reconnect
+                # Try to reconnect using the evdev method
                 controller = create_ps4_controller()
                 if controller is None:
                     print("\rAttempting to reconnect...", end='')
