@@ -84,6 +84,18 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 
+# Add these constants near the top with your other constants
+KNIGHT_RIDER_INTERVAL = 0.1
+KNIGHT_RIDER_COLOR = RED
+KNIGHT_RIDER_MAPPING = [
+    LIGHT_REAR_LEFT,
+    LIGHT_MIDDLE_LEFT,
+    LIGHT_FRONT_LEFT,
+    LIGHT_FRONT_RIGHT,
+    LIGHT_MIDDLE_RIGHT,
+    LIGHT_REAR_RIGHT
+]
+
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
         trilobot.set_underlights(group, color)
@@ -362,12 +374,12 @@ def handle_controller_input(controller, tank_steer, button_pressed_last_frame):
         if controller.read_button("Circle") and not button_pressed_last_frame:
             capture_image_with_raspistill()
             button_pressed_last_frame = True
-        elif controller.read_button("Square"):
-            function_for_square_button()
-        elif controller.read_button("Triangle"):
-            function_for_triangle_button()
-        elif controller.read_button("Cross"):
-            function_for_cross_button()
+        elif controller.read_button("Square") and not button_pressed_last_frame:
+            global knight_rider_active
+            knight_rider_active = not knight_rider_active
+            if not knight_rider_active:
+                tbot.clear_underlighting()
+            button_pressed_last_frame = True
         else:
             button_pressed_last_frame = False
 
@@ -410,9 +422,31 @@ def handle_underlighting(h, v, controller_connected):
         v += math.pi / 200
     return h, v
 
+# Add this function to handle the Knight Rider effect
+def update_knight_rider_lights(current_led, direction):
+    """Updates the Knight Rider light effect"""
+    tbot.clear_underlighting(show=False)
+    tbot.set_underlight(KNIGHT_RIDER_MAPPING[current_led], KNIGHT_RIDER_COLOR)
+    
+    # Update position for next frame
+    if direction == 1:  # Moving right
+        if current_led >= NUM_UNDERLIGHTS - 1:
+            return current_led - 1, -1  # Start moving left
+        return current_led + 1, 1
+    else:  # Moving left
+        if current_led <= 0:
+            return current_led + 1, 1  # Start moving right
+        return current_led - 1, -1
+
 # Main function
 def main():
-    global stream_process
+    global stream_process, knight_rider_active
+    
+    # Initialize Knight Rider variables
+    knight_rider_active = False
+    knight_rider_led = 0
+    knight_rider_direction = 1
+    last_knight_rider_update = time.time()
     
     # Clean up any existing camera processes first
     cleanup_camera()
@@ -452,11 +486,19 @@ def main():
         # Main control loop
         while True:
             try:
-                controller.update(debug=False)  # Disable debug output
+                controller.update(debug=False)
                 tank_steer, button_pressed_last_frame = handle_controller_input(
                     controller, tank_steer, button_pressed_last_frame
                 )
                 handle_motor_control(controller, tank_steer)
+                
+                # Update Knight Rider effect if active
+                current_time = time.time()
+                if knight_rider_active and (current_time - last_knight_rider_update) >= KNIGHT_RIDER_INTERVAL:
+                    knight_rider_led, knight_rider_direction = update_knight_rider_lights(
+                        knight_rider_led, knight_rider_direction
+                    )
+                    last_knight_rider_update = current_time
                 
             except Exception as e:
                 print(f"\rController error: {str(e)}")
@@ -465,7 +507,7 @@ def main():
                 if controller is None:
                     print("\rAttempting to reconnect...", end='')
             
-            time.sleep(0.01)  # Reduced sleep time for faster response
+            time.sleep(0.01)
             
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
