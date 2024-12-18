@@ -115,9 +115,10 @@ knight_rider_active = False
 party_mode_active = False
 
 # Distance thresholds in cm
-BAND1 = 20   # Distance where lights show red
-BAND2 = 40   # Distance where lights show yellow
-SENSOR_READ_INTERVAL = 0.1  # How often to check distance (seconds)
+BAND1 = 20  # Distance where lights show yellow
+BAND2 = 80  # Distance where lights show yellow-green
+BAND3 = 100  # Distance where lights show green
+YELLOW_GREEN_POINT = 192  # Amount of red for mid-point between green and yellow
 
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
@@ -632,17 +633,12 @@ def main():
                 
                 # Read distance sensor periodically if not in a light show mode
                 if not (knight_rider_active or party_mode_active):
-                    if current_time - last_sensor_read >= SENSOR_READ_INTERVAL:
+                    if current_time - last_sensor_read >= 0.1:  # 100ms interval
                         try:
-                            # Use all three parameters for more reliable readings
-                            distance = tbot.read_distance(
-                                timeout=timeout,
-                                samples=samples,
-                                offset=offset
-                            )
-                            handle_distance_warning(distance)
+                            distance = tbot.read_distance()
+                            rgb_colour = colour_from_distance(distance)
+                            tbot.fill_underlighting(rgb_colour)
                         except Exception:
-                            # Silently handle sensor errors
                             pass
                         last_sensor_read = current_time
                 
