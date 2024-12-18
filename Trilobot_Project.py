@@ -111,10 +111,10 @@ def startup_animation():
 PAGE = """\
 <html>
 <head>
-<title>picamera2 MJPEG streaming demo</title>
+<title>Trilobot Camera Stream</title>
 </head>
 <body>
-<h1>Picamera2 MJPEG Streaming Demo</h1>
+<h1>Trilobot Camera Stream</h1>
 <img src="stream.mjpg" width="640" height="480" />
 </body>
 </html>
@@ -132,6 +132,10 @@ class StreamingOutput(io.BufferedIOBase):
 
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Suppress logging messages
+        pass
+        
     def do_GET(self):
         if self.path == '/':
             self.send_response(301)
@@ -175,37 +179,71 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+def initialize_camera():
+    try:
+        picam2 = Picamera2()
+        camera_config = picam2.create_video_configuration(
+            main={"size": (640, 480), "format": "RGB888"},
+            lores={"size": (320, 240), "format": "YUV420"},
+            display="lores"
+        )
+        picam2.configure(camera_config)
+        return picam2
+    except Exception as e:
+        print(f"\rCamera initialization error: {str(e)}")
+        return None
+
 def start_camera_stream():
     global picam2, output
     
-    # Initialize camera
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
-    output = StreamingOutput()
-    
-    # Start the camera
-    picam2.start_preview()
-    encoder = MJPEGEncoder()
-    picam2.start_recording(encoder, FileOutput(output))
-    
-    # Start the streaming server
     try:
-        address = ('', 8000)  # Port 8000
+        # First, try to clean up any existing camera instances
+        try:
+            subprocess.run(['pkill', '-f', 'camera'], timeout=2)
+            time.sleep(1)  # Give system time to clean up
+        except Exception:
+            pass
+        
+        # Initialize camera
+        picam2 = Picamera2()
+        camera_config = picam2.create_video_configuration(
+            main={"size": (640, 480), "format": "RGB888"},
+            lores={"size": (320, 240), "format": "YUV420"},
+            display="lores"
+        )
+        picam2.configure(camera_config)
+        
+        # Create output and start camera
+        output = StreamingOutput()
+        picam2.start()
+        
+        # Start encoder
+        encoder = MJPEGEncoder(bitrate=10000000)
+        picam2.start_recording(encoder, FileOutput(output))
+        
+        # Start server
+        address = ('', 8000)
         server = StreamingServer(address, StreamingHandler)
         print(f"\rStreaming started - visit http://<IP-address>:8000")
         server.serve_forever()
+        
     except Exception as e:
-        print(f"\rStreaming error: {str(e)}")
+        print(f"\rStreaming setup error: {str(e)}")
     finally:
-        picam2.stop_recording()
+        if 'picam2' in locals():
+            try:
+                picam2.stop_recording()
+                picam2.stop()
+            except:
+                pass
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
     print("\nWaiting for PS4 controller connection...")
     
-    # Create controller with debug=False to suppress axis/button messages
-    controller = SimpleController("Wireless Controller", exact_match=True, debug=False)
+    # Remove debug parameter as it's not supported
+    controller = SimpleController("Wireless Controller", exact_match=True)
     
     # Register buttons and axes silently
     controller.register_button("Cross", 304, alt_name="A", silent=True)
@@ -334,64 +372,82 @@ def handle_underlighting(h, v, controller_connected):
 
 # Main function
 def main():
+    global stream_process  # Make it global so it can be accessed in error handling
+    
     # Start the camera stream in a separate process
     stream_process = Process(target=start_camera_stream)
     stream_process.start()
+    time.sleep(2)  # Give the camera time to initialize
     
     startup_animation()
     
-    # Initialize variables
-    controller = create_ps4_controller()
-    button_pressed_last_frame = False
-    tank_steer = False
-    last_distance = 0
-    h = 0
-    v = 0
-    last_connection_attempt = 0
-    connection_retry_interval = 5
-    last_status = None  # Track last connection status
-    
-    print("\nStarting controller connection process...")
-    
-    while True:
-        current_time = time.time()
-        current_status = controller.is_connected()
+    try:
+        # Initialize the PS4 controller
+        controller = create_ps4_controller()
         
-        # Only print status when it changes
-        if current_status != last_status:
-            if current_status:
-                print("\rController connected    ")
-                tbot.fill_underlighting(0, 255, 0)  # Green
-                time.sleep(0.5)
-            else:
-                print("\rController disconnected ")
-                tbot.fill_underlighting(127, 0, 0)  # Red
-            last_status = current_status
+        # Initialize variables
+        button_pressed_last_frame = False
+        tank_steer = False
+        last_distance = 0
+        h = 0
+        v = 0
+        last_connection_attempt = 0
+        connection_retry_interval = 5
+        last_status = None  # Track last connection status
         
-        if not current_status:
-            if current_time - last_connection_attempt >= connection_retry_interval:
-                attempt_controller_connection(controller)
-                last_connection_attempt = current_time
-            time.sleep(0.1)
-            continue
+        print("\nStarting controller connection process...")
         
-        try:
-            controller.update()
-            tank_steer, button_pressed_last_frame = handle_controller_input(
-                controller, tank_steer, button_pressed_last_frame
-            )
-            handle_motor_control(controller, tank_steer)
-            h, v = handle_underlighting(h, v, True)
+        while True:
+            current_time = time.time()
+            current_status = controller.is_connected()
             
-        except Exception as e:
-            if str(e) != last_error:  # Only print new errors
-                print(f"\rController error: {str(e)}")
-                last_error = str(e)
-            controller = create_ps4_controller()
-            tbot.disable_motors()
-            time.sleep(1)
-        
-        time.sleep(0.01)
+            # Only print status when it changes
+            if current_status != last_status:
+                if current_status:
+                    print("\rController connected    ")
+                    tbot.fill_underlighting(0, 255, 0)  # Green
+                    time.sleep(0.5)
+                else:
+                    print("\rController disconnected ")
+                    tbot.fill_underlighting(127, 0, 0)  # Red
+                last_status = current_status
+            
+            if not current_status:
+                if current_time - last_connection_attempt >= connection_retry_interval:
+                    attempt_controller_connection(controller)
+                    last_connection_attempt = current_time
+                time.sleep(0.1)
+                continue
+            
+            try:
+                controller.update()
+                tank_steer, button_pressed_last_frame = handle_controller_input(
+                    controller, tank_steer, button_pressed_last_frame
+                )
+                handle_motor_control(controller, tank_steer)
+                h, v = handle_underlighting(h, v, True)
+                
+            except Exception as e:
+                if str(e) != last_error:  # Only print new errors
+                    print(f"\rController error: {str(e)}")
+                    last_error = str(e)
+                controller = create_ps4_controller()
+                tbot.disable_motors()
+                time.sleep(1)
+            
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("\nProgram terminated by user")
+        if 'stream_process' in globals():
+            stream_process.terminate()
+        tbot.clear_underlighting()
+        tbot.disable_motors()
+    except Exception as e:
+        print(f"\nProgram error: {str(e)}")
+        if 'stream_process' in globals():
+            stream_process.terminate()
+        tbot.clear_underlighting()
+        tbot.disable_motors()
 
 if __name__ == "__main__":
     try:
