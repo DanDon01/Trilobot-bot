@@ -14,7 +14,7 @@ from http import server
 from time import sleep
 
 from picamera2 import Picamera2
-from picamera2.encoders import JpegEncoder
+from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
 # Initialize the Trilobot
@@ -179,7 +179,8 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 picam2 = Picamera2()
 picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
 output = StreamingOutput()
-picam2.start_recording(JpegEncoder(), FileOutput(output))
+encoder = MJPEGEncoder()
+picam2.start_recording(encoder, FileOutput(output))
 
 try:
     address = ('', 7123)
