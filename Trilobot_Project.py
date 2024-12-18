@@ -191,11 +191,13 @@ finally:
 
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
-    """ Create a controller class for the PlayStation 4 Wireless controller.
-    stick_deadzone_percent: the deadzone amount to apply to the controller's analog sticks
-    """
+    """Create a controller class for the PlayStation 4 Wireless controller."""
+    print("\nWaiting for PS4 controller connection...")
+    print("Please press the PS button on your controller to connect")
+    print("Make sure your controller is in pairing mode (hold Share + PS button until light bar flashes)")
+    
     controller = SimpleController("Wireless Controller", exact_match=True)
-
+    
     # Button and axis registrations for PS4 Controller
     controller.register_button("Cross", 304, alt_name="A")
     controller.register_button("Circle", 305, alt_name="B")
@@ -396,50 +398,95 @@ def start_streaming():
     finally:
         picam2.stop_recording()
 
+def attempt_controller_connection(controller, retry_interval=5):
+    """Attempt to connect to the controller with better user feedback"""
+    last_attempt_time = 0
+    
+    while not controller.is_connected():
+        current_time = time.time()
+        
+        # Only try reconnecting and print message every retry_interval seconds
+        if current_time - last_attempt_time >= retry_interval:
+            print("\nController not connected. Attempting to reconnect...")
+            print("Please ensure:")
+            print("1. Your controller is charged")
+            print("2. Press the PS button to wake the controller")
+            print("3. To pair a new controller, hold SHARE + PS button until light bar flashes")
+            
+            try:
+                controller.reconnect(timeout=2, silent=True)  # Quick timeout to keep things responsive
+                if controller.is_connected():
+                    print("\nController connected successfully!")
+                    tbot.fill_underlighting(0, 255, 0)  # Green to indicate success
+                    time.sleep(1)
+                    return True
+            except Exception as e:
+                print(f"Connection error: {str(e)}")
+            
+            last_attempt_time = current_time
+            
+        time.sleep(0.1)  # Prevent CPU spinning
+    
+    return False
+
 # Main function
 def main():
     startup_animation()
-
-    # Start streaming in a separate process
-    streaming_process = Process(target=start_streaming)
-    streaming_process.start()
-
+    
     # Initialize the PS4 controller
     controller = create_ps4_controller()
-
+    
     button_pressed_last_frame = False
     tank_steer = False
     last_distance = 0
-
     h = 0
     v = 0
-
+    last_connection_attempt = 0
+    connection_retry_interval = 5  # seconds between connection attempts
+    
     while True:
+        current_time = time.time()
+        
+        # Handle controller connection state
         if not controller.is_connected():
-            controller.reconnect(10, True)
-
-        distance = sense_environment(last_distance, threshold=5, timeout=timeout, 
-                                  samples=samples, offset=offset)
-        handle_obstacles(distance)
-        last_distance = distance
-
+            if current_time - last_connection_attempt >= connection_retry_interval:
+                attempt_controller_connection(controller)
+                last_connection_attempt = current_time
+            
+            # Show disconnected state with red underlighting
+            tbot.fill_underlighting(127, 0, 0)  # Dim red when disconnected
+            time.sleep(0.1)  # Prevent CPU spinning when disconnected
+            continue  # Skip the rest of the loop if not connected
+        
         try:
             controller.update()
-        except RuntimeError:
-            tbot.disable_motors()
-
-        if controller.is_connected():
+            
+            # Handle controller input and motor control
             tank_steer, button_pressed_last_frame = handle_controller_input(
                 controller, tank_steer, button_pressed_last_frame
             )
             handle_motor_control(controller, tank_steer)
-
+            
+            # Update underlighting based on connected state
             h, v = handle_underlighting(h, v, True)
-        else:
-            h, v = handle_underlighting(h, v, False)
-
-        time.sleep(0.01)
+            
+        except Exception as e:
+            print(f"Controller error: {str(e)}")
+            controller = create_ps4_controller()  # Recreate controller object on error
+            tbot.disable_motors()
+            time.sleep(1)
+            
+        time.sleep(0.01)  # Small delay to prevent CPU spinning
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nProgram terminated by user")
+        tbot.clear_underlighting()
+        tbot.disable_motors()
+    except Exception as e:
+        print(f"\nProgram error: {str(e)}")
+        tbot.clear_underlighting()
+        tbot.disable_motors()
 
