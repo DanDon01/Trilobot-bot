@@ -195,11 +195,10 @@ def initialize_camera():
 
 def cleanup_camera():
     try:
-        # Kill any existing camera processes
+        # Kill any existing camera processes without camera service reset
         subprocess.run(['sudo', 'pkill', '-f', 'camera'], timeout=2)
         subprocess.run(['sudo', 'pkill', '-f', 'libcamera'], timeout=2)
         subprocess.run(['sudo', 'pkill', '-f', 'picamera2'], timeout=2)
-        subprocess.run(['sudo', 'systemctl', 'restart', 'camera'], timeout=2)
         time.sleep(2)  # Give system time to clean up
     except Exception as e:
         print(f"Cleanup warning: {str(e)}")
@@ -247,11 +246,30 @@ def start_camera_stream():
 # Function to create and return a PS4 controller setup
 def create_ps4_controller(stick_deadzone_percent=0.1):
     """Create a controller class for the PlayStation 4 Wireless controller."""
-    print("\nWaiting for PS4 controller connection...")
-    print("Press the PS button to connect the controller")
+    print("\nAttempting to connect to PS4 controller...")
+    print("Make sure the controller is paired and press the PS button")
     
-    # Create controller with basic setup
-    controller = SimpleController("Wireless Controller", exact_match=True)
+    # Try different possible controller names
+    controller_names = [
+        "Wireless Controller",
+        "Sony Interactive Entertainment Wireless Controller",
+        "Sony Computer Entertainment Wireless Controller",
+        "PS4 Controller"
+    ]
+    
+    controller = None
+    for name in controller_names:
+        try:
+            controller = SimpleController(name, exact_match=False)
+            if controller.is_connected():
+                print(f"Connected to controller: {name}")
+                break
+        except Exception:
+            continue
+    
+    if controller is None or not controller.is_connected():
+        print("Could not find controller. Please ensure it's paired and powered on.")
+        return None
     
     # Register buttons
     controller.register_button("Cross", 304)
@@ -396,26 +414,31 @@ def main():
         
         startup_animation()
         
-        # Initialize the PS4 controller
-        controller = create_ps4_controller()
-        connection_message_time = 0
-        message_interval = 3  # Show connection message every 3 seconds
+        # Initialize controller with retry loop
+        controller = None
+        retry_count = 0
+        max_retries = 3
         
-        # Initialize variables
-        button_pressed_last_frame = False
-        tank_steer = False
-        last_distance = 0
-        h = 0
-        v = 0
+        while controller is None and retry_count < max_retries:
+            controller = create_ps4_controller()
+            if controller is None:
+                retry_count += 1
+                print(f"\nRetry attempt {retry_count} of {max_retries}")
+                time.sleep(2)
         
+        if controller is None:
+            print("\nFailed to connect to controller after multiple attempts.")
+            print("Please check that:")
+            print("1. The controller is charged")
+            print("2. The controller is properly paired with the Raspberry Pi")
+            print("3. No other devices are using the controller")
+            raise Exception("Controller connection failed")
+        
+        # Main control loop
         while True:
-            current_time = time.time()
-            
             if not controller.is_connected():
-                if current_time - connection_message_time >= message_interval:
-                    print("\rWaiting for controller... Press PS button", end='')
-                    connection_message_time = current_time
-                time.sleep(0.5)
+                print("\rController disconnected. Press PS button to reconnect", end='')
+                time.sleep(1)
                 continue
             
             try:
@@ -436,7 +459,6 @@ def main():
     except Exception as e:
         print(f"\nProgram error: {str(e)}")
     finally:
-        # Cleanup section
         if 'stream_process' in globals():
             stream_process.terminate()
             stream_process.join(timeout=1)
