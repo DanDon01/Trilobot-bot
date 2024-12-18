@@ -488,13 +488,16 @@ def update_party_lights(current_color_index):
     # Alternate between all lights and every other light
     if current_color_index % 2 == 0:
         # All lights same color
-        tbot.set_underlights(range(NUM_UNDERLIGHTS), color)
+        tbot.clear_underlighting(show=False)
+        for light in range(6):  # 0 to 5 for all lights
+            tbot.set_underlight(light, *color, show=False)
+        tbot.show_underlighting()
     else:
         # Alternating lights
         tbot.clear_underlighting(show=False)
-        for i in range(0, NUM_UNDERLIGHTS, 2):
-            tbot.set_underlight(i, color, show=False)
-    tbot.show_underlighting()
+        for light in range(0, 6, 2):  # Every other light (0, 2, 4)
+            tbot.set_underlight(light, *color, show=False)
+        tbot.show_underlighting()
     
     # Move to next color
     return (current_color_index + 1) % len(PARTY_COLORS)
