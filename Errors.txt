@@ -1,0 +1,24 @@
+>>> %Run Trilobot_Project.py
+[0:04:03.035506190] [1717]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
+[0:04:03.099145733] [1723]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[0:04:03.113650042] [1723]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media2 and ISP device /dev/media0
+[0:04:03.113843165] [1723]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+INFO:picamera2.picamera2:Initialization successful.
+INFO:picamera2.picamera2:Camera now open.
+INFO:picamera2.picamera2:Camera configuration has been adjusted!
+[0:04:03.154997602] [1717]  INFO Camera camera.cpp:1197 configuring streams: (0) 640x480-XBGR8888 (1) 2028x1520-SBGGR12_CSI2P
+[0:04:03.157182824] [1723]  INFO RPI vc4.cpp:622 Sensor: /base/soc/i2c0mux/i2c@1/imx477@1a - Selected sensor format: 2028x1520-SBGGR12_1X12 - Selected unicam format: 2028x1520-pBCC
+INFO:picamera2.picamera2:Configuration successful!
+Traceback (most recent call last):
+  File "/home/Dan/Projects/Trilobot_Project.py", line 77, in <module>
+    start_streaming()
+  File "/home/Dan/Projects/Trilobot_Project.py", line 67, in start_streaming
+    picam2.start_recording(MJPEGEncoder(), output)
+  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 1815, in start_recording
+    self.start_encoder(encoder, output, pts=pts, quality=quality, name=name)
+  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 1736, in start_encoder
+    _encoder.output = output
+  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/encoders/encoder.py", line 207, in output
+    raise RuntimeError("Must pass Output")
+RuntimeError: Must pass Output
+>>> 
