@@ -3,6 +3,7 @@
 <head>
     <title>Trilobot Control</title>
     <style>
+        /* Base styling */
         body {
             font-family: Arial, sans-serif;
             display: flex;
@@ -12,6 +13,8 @@
             margin: 0;
             background-color: #f0f0f0;
         }
+        
+        /* Control pad layout */
         .control-pad {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -21,6 +24,8 @@
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
+        
+        /* Button styling */
         button {
             padding: 20px;
             font-size: 18px;
@@ -30,10 +35,17 @@
             color: white;
             cursor: pointer;
             transition: background-color 0.3s;
+            touch-action: none; /* Prevents default touch behaviors */
         }
+        
         button:hover {
             background-color: #0056b3;
         }
+        
+        button.active {
+            background-color: #004494; /* Darker color when active */
+        }
+        
         .empty {
             visibility: hidden;
         }
@@ -42,19 +54,23 @@
 <body>
     <div class="control-pad">
         <div class="empty"></div>
-        <button onclick="move('forward')">↑</button>
+        <button id="forward">↑</button>
         <div class="empty"></div>
-        <button onclick="move('left')">←</button>
-        <button onclick="move('stop')">Stop</button>
-        <button onclick="move('right')">→</button>
+        <button id="left">←</button>
+        <button id="stop">Stop</button>
+        <button id="right">→</button>
         <div class="empty"></div>
-        <button onclick="move('backward')">↓</button>
+        <button id="backward">↓</button>
         <div class="empty"></div>
     </div>
 
     <script>
-        function move(direction) {
-            fetch(`/move/${direction}`)
+        // Track which buttons are currently pressed
+        const activeButtons = new Set();
+        
+        // Function to start movement
+        function startMove(direction) {
+            fetch(`/move/${direction}/start`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'error') {
@@ -63,6 +79,65 @@
                 })
                 .catch(error => console.error('Error:', error));
         }
+        
+        // Function to stop movement
+        function stopMove(direction) {
+            fetch(`/move/${direction}/stop`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'error') {
+                        console.error('Error:', data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+        
+        // Setup controls for both mouse and touch events
+        ['forward', 'backward', 'left', 'right'].forEach(direction => {
+            const button = document.getElementById(direction);
+            
+            // Mouse events
+            button.addEventListener('mousedown', () => {
+                button.classList.add('active');
+                startMove(direction);
+            });
+            
+            button.addEventListener('mouseup', () => {
+                button.classList.remove('active');
+                stopMove(direction);
+            });
+            
+            button.addEventListener('mouseleave', () => {
+                if (button.classList.contains('active')) {
+                    button.classList.remove('active');
+                    stopMove(direction);
+                }
+            });
+            
+            // Touch events for mobile devices
+            button.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                button.classList.add('active');
+                startMove(direction);
+            });
+            
+            button.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                button.classList.remove('active');
+                stopMove(direction);
+            });
+            
+            button.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                button.classList.remove('active');
+                stopMove(direction);
+            });
+        });
+        
+        // Stop button functionality
+        document.getElementById('stop').addEventListener('click', () => {
+            stopMove('stop');
+        });
     </script>
 </body>
 </html>
