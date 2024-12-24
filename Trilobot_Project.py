@@ -340,9 +340,9 @@ def handle_motor_control(controller, tank_steer):
             
         try:
             if tank_steer:
-                # Tank steering mode (each stick controls one side)
-                left_y = -controller.read_axis("Left Y")   # Invert Y axis
-                right_y = -controller.read_axis("Right Y") # Invert Y axis
+                # Fix axis names to match exactly what the controller provides
+                left_y = -controller.read_axis("LY")    # Changed from "Left Y"
+                right_y = -controller.read_axis("RY")   # Changed from "Right Y"
                 
                 # Apply deadzone
                 left_y = 0 if abs(left_y) < STICK_DEADZONE else left_y
@@ -353,9 +353,9 @@ def handle_motor_control(controller, tank_steer):
                 right_speed = right_y * MAX_SPEED
                 
             else:
-                # Arcade steering mode (left stick for both controls)
-                y_axis = -controller.read_axis("Left Y")    # Forward/backward
-                x_axis = controller.read_axis("Left X")     # Turning
+                # Fix axis names for arcade steering too
+                y_axis = -controller.read_axis("LY")    # Changed from "Left Y"
+                x_axis = controller.read_axis("LX")     # Changed from "Left X"
                 
                 # Apply deadzone
                 y_axis = 0 if abs(y_axis) < STICK_DEADZONE else y_axis
@@ -365,27 +365,25 @@ def handle_motor_control(controller, tank_steer):
                 left_speed = y_axis + x_axis
                 right_speed = y_axis - x_axis
                 
-                # Scale speeds to maintain proportional control
+                # Scale speeds
                 max_raw = max(abs(left_speed), abs(right_speed))
                 if max_raw > 1:
                     left_speed /= max_raw
                     right_speed /= max_raw
                     
-                # Apply maximum speed limit
                 left_speed *= MAX_SPEED
                 right_speed *= MAX_SPEED
             
             # Set motor speeds
             if abs(left_speed) < STICK_DEADZONE and abs(right_speed) < STICK_DEADZONE:
-                # If both speeds are within deadzone, stop motors
                 tbot.disable_motors()
             else:
                 tbot.set_left_speed(left_speed)
                 tbot.set_right_speed(right_speed)
-            
+                
         except Exception as e:
             print(f"Motor control error: {e}")
-            tbot.disable_motors()  # Safety stop on error
+            tbot.disable_motors()
 
 def handle_controller_input(controller, tank_steer, button_states):
     global control_mode, knight_rider_active, party_mode_active
