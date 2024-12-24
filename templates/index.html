@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trilobot Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .control-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 20px;
+            font-size: 18px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .empty {
+            visibility: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div class="control-pad">
+        <div class="empty"></div>
+        <button onclick="move('forward')">↑</button>
+        <div class="empty"></div>
+        <button onclick="move('left')">←</button>
+        <button onclick="move('stop')">Stop</button>
+        <button onclick="move('right')">→</button>
+        <div class="empty"></div>
+        <button onclick="move('backward')">↓</button>
+        <div class="empty"></div>
+    </div>
+
+    <script>
+        function move(direction) {
+            fetch(`/move/${direction}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'error') {
+                        console.error('Error:', data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+    </script>
+</body>
+</html>
