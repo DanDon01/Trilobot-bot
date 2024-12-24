@@ -21,6 +21,8 @@ from evdev import InputDevice, ecodes, list_devices
 
 # Initialize the Trilobot
 tbot = Trilobot()
+DEFAULT_NUM_CYCLES = 4
+DEFAULT_BLINK_RATE_SEC = 1
 
 # Define some common colours to use later
 RED = (255, 0, 0)
