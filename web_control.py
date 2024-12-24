@@ -24,6 +24,12 @@ current_speeds = {'left': 0, 'right': 0}
 camera = None
 output = None
 overlay_mode = 'normal'
+button_states = {
+    'triangle': False,
+    'circle': False,
+    'cross': False,
+    'square': False
+}
 
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
@@ -98,14 +104,20 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 def init_camera():
     global camera, output
     try:
-        # Kill any existing camera processes
         os.system('sudo fuser -k /dev/video0 2>/dev/null')
         time.sleep(1)
         
         camera = Picamera2()
-        camera.configure(camera.create_video_configuration(main={"size": (640, 480)}))
+        # Improved camera configuration
+        camera_config = camera.create_video_configuration(
+            main={"size": (1280, 720)},  # Higher resolution
+            encode="main",
+            buffer_count=4
+        )
+        camera.configure(camera_config)
         output = StreamingOutput()
-        encoder = MJPEGEncoder(bitrate=1000000)
+        # Increased bitrate for better quality
+        encoder = MJPEGEncoder(bitrate=8000000)  # 8Mbps
         camera.start_recording(encoder, FileOutput(output))
         print("Camera initialized successfully")
         return True
@@ -137,6 +149,53 @@ def cleanup():
         except:
             pass
     tbot.disable_motors()
+
+@app.route('/button/<button_name>/<action>')
+def handle_button(button_name, action):
+    """Handle button presses"""
+    global button_states
+    try:
+        is_active = (action == 'press')
+        button_states[button_name] = is_active
+        
+        # Handle button actions
+        if button_name == 'triangle':
+            # Triangle button - Toggle LED pattern
+            if is_active:
+                tbot.fill_underlighting((0, 255, 0))  # Green
+            else:
+                tbot.clear_underlighting()
+                
+        elif button_name == 'circle':
+            # Circle button - Red lighting
+            if is_active:
+                tbot.fill_underlighting((255, 0, 0))  # Red
+            else:
+                tbot.clear_underlighting()
+                
+        elif button_name == 'cross':
+            # Cross button - Blue lighting
+            if is_active:
+                tbot.fill_underlighting((0, 0, 255))  # Blue
+            else:
+                tbot.clear_underlighting()
+                
+        elif button_name == 'square':
+            # Square button - Purple lighting
+            if is_active:
+                tbot.fill_underlighting((255, 0, 255))  # Purple
+            else:
+                tbot.clear_underlighting()
+        
+        return jsonify({
+            'status': 'success',
+            'button': button_name,
+            'action': action
+        })
+        
+    except Exception as e:
+        print(f"Button error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
     try:

@@ -98,6 +98,33 @@
             border-radius: 5px;
             text-align: center;
         }
+        
+        .ps4-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        
+        .ps4-btn {
+            padding: 20px;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .ps4-btn:active {
+            opacity: 0.7;
+        }
+        
+        .triangle { background-color: #2ecc71; }
+        .circle { background-color: #e74c3c; }
+        .cross { background-color: #3498db; }
+        .square { background-color: #9b59b6; }
     </style>
 </head>
 <body>
@@ -135,6 +162,33 @@
             <button onclick="setOverlay('normal')" class="overlay-btn">Normal View</button>
             <button onclick="setOverlay('night_vision')" class="overlay-btn">Night Vision</button>
             <button onclick="setOverlay('targeting')" class="overlay-btn">Targeting</button>
+        </div>
+        
+        <div class="ps4-buttons" style="margin: 20px 0; text-align: center;">
+            <button class="ps4-btn triangle" onmousedown="handleButton('triangle', 'press')" 
+                    onmouseup="handleButton('triangle', 'release')" 
+                    ontouchstart="handleButton('triangle', 'press')" 
+                    ontouchend="handleButton('triangle', 'release')">
+                Triangle
+            </button>
+            <button class="ps4-btn circle" onmousedown="handleButton('circle', 'press')" 
+                    onmouseup="handleButton('circle', 'release')"
+                    ontouchstart="handleButton('circle', 'press')" 
+                    ontouchend="handleButton('circle', 'release')">
+                Circle
+            </button>
+            <button class="ps4-btn cross" onmousedown="handleButton('cross', 'press')" 
+                    onmouseup="handleButton('cross', 'release')"
+                    ontouchstart="handleButton('cross', 'press')" 
+                    ontouchend="handleButton('cross', 'release')">
+                Cross
+            </button>
+            <button class="ps4-btn square" onmousedown="handleButton('square', 'press')" 
+                    onmouseup="handleButton('square', 'release')"
+                    ontouchstart="handleButton('square', 'press')" 
+                    ontouchend="handleButton('square', 'release')">
+                Square
+            </button>
         </div>
         
         <div id="status" style="text-align: center; margin: 10px 0;">
@@ -280,6 +334,21 @@
                             btn.style.opacity = '1';
                         });
                         event.target.style.opacity = '0.7';
+                    } else {
+                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status-text').textContent = `Error: ${error}`;
+                });
+        }
+        
+        function handleButton(button, action) {
+            fetch(`/button/${button}/${action}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('status-text').textContent = `${button}: ${action}`;
                     } else {
                         document.getElementById('status-text').textContent = `Error: ${data.message}`;
                     }
