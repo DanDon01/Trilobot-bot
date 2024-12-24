@@ -1,5 +1,6 @@
 from flask import Flask, render_template, jsonify
-from trilobot import Trilobot
+from trilobot import Trilobot, NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_LEFT
+from trilobot import LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
 import threading
 import time
 
@@ -8,7 +9,93 @@ tbot = Trilobot()
 
 # Configuration
 SPEED = 0.6  # 60% speed for safety
-control_lock = threading.Lock()  # Local lock for web control
+control_lock = threading.Lock()
+
+# Light show constants
+KNIGHT_RIDER_INTERVAL = 0.1
+PARTY_MODE_INTERVAL = 0.2
+
+# Colors
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+MAGENTA = (255, 0, 255)
+CYAN = (0, 255, 255)
+
+# Light mapping for effects
+KNIGHT_RIDER_MAPPING = [
+    LIGHT_REAR_LEFT,
+    LIGHT_MIDDLE_LEFT,
+    LIGHT_FRONT_LEFT,
+    LIGHT_FRONT_RIGHT,
+    LIGHT_MIDDLE_RIGHT,
+    LIGHT_REAR_RIGHT
+]
+
+PARTY_COLORS = [
+    RED,        # Red
+    GREEN,      # Green
+    BLUE,       # Blue
+    YELLOW,     # Yellow
+    MAGENTA,    # Magenta
+    CYAN,       # Cyan
+    (255, 128, 0),  # Orange
+    (128, 0, 255),  # Purple
+]
+
+# Global state
+button_leds_active = False
+knight_rider_active = False
+party_mode_active = False
+tank_mode_active = False
+light_show_thread = None
+stop_light_shows = threading.Event()
+
+def knight_rider_effect():
+    """Run the Knight Rider light effect"""
+    current_led = 0
+    direction = 1
+    
+    while not stop_light_shows.is_set() and knight_rider_active:
+        tbot.clear_underlighting(show=False)
+        tbot.set_underlight(KNIGHT_RIDER_MAPPING[current_led], RED, show=True)
+        
+        # Update LED position
+        current_led += direction
+        
+        # Change direction at ends
+        if current_led >= len(KNIGHT_RIDER_MAPPING) - 1:
+            current_led = len(KNIGHT_RIDER_MAPPING) - 2
+            direction = -1
+        elif current_led <= 0:
+            current_led = 1
+            direction = 1
+            
+        time.sleep(KNIGHT_RIDER_INTERVAL)
+
+def party_mode_effect():
+    """Run the party mode light effect"""
+    color_index = 0
+    
+    while not stop_light_shows.is_set() and party_mode_active:
+        tbot.fill_underlighting(PARTY_COLORS[color_index])
+        color_index = (color_index + 1) % len(PARTY_COLORS)
+        time.sleep(PARTY_MODE_INTERVAL)
+
+def start_light_show(effect_function):
+    """Start a light show in a separate thread"""
+    global light_show_thread
+    
+    # Stop any running light shows
+    stop_light_shows.set()
+    if light_show_thread and light_show_thread.is_alive():
+        light_show_thread.join()
+    
+    # Reset the stop event and start new light show
+    stop_light_shows.clear()
+    light_show_thread = threading.Thread(target=effect_function)
+    light_show_thread.start()
 
 @app.route('/')
 def index():
@@ -20,18 +107,28 @@ def move(direction, action):
     """Handle movement commands"""
     try:
         if action == 'start':
+            speed = SPEED if not tank_mode_active else SPEED * 0.7  # Reduce speed in tank mode
+            
             if direction == 'forward':
-                tbot.set_left_speed(SPEED)
-                tbot.set_right_speed(SPEED)
+                tbot.set_left_speed(speed)
+                tbot.set_right_speed(speed)
             elif direction == 'backward':
-                tbot.set_left_speed(-SPEED)
-                tbot.set_right_speed(-SPEED)
+                tbot.set_left_speed(-speed)
+                tbot.set_right_speed(-speed)
             elif direction == 'left':
-                tbot.set_left_speed(-SPEED)
-                tbot.set_right_speed(SPEED)
+                if tank_mode_active:
+                    tbot.set_left_speed(-speed)
+                    tbot.set_right_speed(speed)
+                else:
+                    tbot.set_left_speed(-speed/2)
+                    tbot.set_right_speed(speed/2)
             elif direction == 'right':
-                tbot.set_left_speed(SPEED)
-                tbot.set_right_speed(-SPEED)
+                if tank_mode_active:
+                    tbot.set_left_speed(speed)
+                    tbot.set_right_speed(-speed)
+                else:
+                    tbot.set_left_speed(speed/2)
+                    tbot.set_right_speed(-speed/2)
         elif action == 'stop':
             tbot.disable_motors()
             
@@ -44,17 +141,68 @@ def move(direction, action):
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/toggle/<mode>')
+def toggle_mode(mode):
+    """Toggle various modes and features"""
+    global button_leds_active, knight_rider_active, party_mode_active, tank_mode_active
+    
+    try:
+        if mode == 'knight':
+            knight_rider_active = not knight_rider_active
+            party_mode_active = False
+            
+            if knight_rider_active:
+                start_light_show(knight_rider_effect)
+            else:
+                stop_light_shows.set()
+                tbot.clear_underlighting()
+                
+            return jsonify({'status': 'success', 'active': knight_rider_active})
+            
+        elif mode == 'party':
+            party_mode_active = not party_mode_active
+            knight_rider_active = False
+            
+            if party_mode_active:
+                start_light_show(party_mode_effect)
+            else:
+                stop_light_shows.set()
+                tbot.clear_underlighting()
+                
+            return jsonify({'status': 'success', 'active': party_mode_active})
+            
+        elif mode == 'tank':
+            tank_mode_active = not tank_mode_active
+            return jsonify({'status': 'success', 'active': tank_mode_active})
+            
+        elif mode == 'leds':
+            button_leds_active = not button_leds_active
+            for led in range(NUM_BUTTONS):
+                tbot.set_button_led(led, button_leds_active)
+            return jsonify({'status': 'success', 'active': button_leds_active})
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
 @app.route('/status')
 def get_status():
-    """Get current control mode status"""
+    """Get current status of all modes"""
     return jsonify({
-        'status': 'web_control_active'
+        'knight_rider': knight_rider_active,
+        'party_mode': party_mode_active,
+        'tank_mode': tank_mode_active,
+        'button_leds': button_leds_active
     })
 
-# Cleanup function
 def cleanup():
+    """Cleanup function to run when shutting down"""
+    stop_light_shows.set()
+    if light_show_thread and light_show_thread.is_alive():
+        light_show_thread.join()
     tbot.disable_motors()
     tbot.clear_underlighting()
+    for led in range(NUM_BUTTONS):
+        tbot.set_button_led(led, False)
 
 if __name__ == '__main__':
     try:

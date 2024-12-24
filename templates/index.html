@@ -3,28 +3,24 @@
 <head>
     <title>Trilobot Control</title>
     <style>
-        /* Base styling */
         body {
             font-family: Arial, sans-serif;
             display: flex;
-            flex-direction: column;  /* Stack elements vertically */
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             background-color: #f0f0f0;
+            padding: 20px;
         }
         
-        /* Container for both camera and controls */
         .container {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 20px;
-            padding: 20px;
         }
         
-        /* Camera feed styling */
         .camera-feed {
             background-color: #fff;
             padding: 10px;
@@ -39,7 +35,12 @@
             border-radius: 5px;
         }
         
-        /* Control pad layout */
+        .control-section {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+        }
+        
         .control-pad {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -50,7 +51,16 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
         
-        /* Button styling */
+        .ps4-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
         button {
             padding: 20px;
             font-size: 18px;
@@ -74,6 +84,20 @@
         .empty {
             visibility: hidden;
         }
+        
+        /* PS4 button colors */
+        .triangle { background-color: #2ecc71; }
+        .circle { background-color: #e74c3c; }
+        .cross { background-color: #3498db; }
+        .square { background-color: #9b59b6; }
+        
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -83,49 +107,98 @@
             <img src="http://192.168.0.137:8000/stream.mjpg" alt="Camera Feed">
         </div>
         
-        <!-- Control Pad -->
-        <div class="control-pad">
-            <div class="empty"></div>
-            <button id="forward">↑</button>
-            <div class="empty"></div>
-            <button id="left">←</button>
-            <button id="stop">Stop</button>
-            <button id="right">→</button>
-            <div class="empty"></div>
-            <button id="backward">↓</button>
-            <div class="empty"></div>
+        <div class="control-section">
+            <!-- Movement Control Pad -->
+            <div class="control-pad">
+                <div class="empty"></div>
+                <button id="forward">↑</button>
+                <div class="empty"></div>
+                <button id="left">←</button>
+                <button id="stop">Stop</button>
+                <button id="right">→</button>
+                <div class="empty"></div>
+                <button id="backward">↓</button>
+                <div class="empty"></div>
+            </div>
+            
+            <!-- PS4 Button Controls -->
+            <div class="ps4-buttons">
+                <button class="triangle" onclick="toggleMode('party')">Triangle<br>(Party Mode)</button>
+                <button class="circle" onclick="toggleMode('tank')">Circle<br>(Tank Mode)</button>
+                <button class="cross" onclick="toggleLeds()">Cross<br>(Button LEDs)</button>
+                <button class="square" onclick="toggleMode('knight')">Square<br>(Knight Rider)</button>
+            </div>
+        </div>
+        
+        <div class="status">
+            Status: <span id="status-text">Ready</span>
         </div>
     </div>
 
     <script>
-        // Track which buttons are currently pressed
-        const activeButtons = new Set();
-        
-        // Function to start movement
+        // Movement control
         function startMove(direction) {
             fetch(`/move/${direction}/start`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'error') {
                         console.error('Error:', data.message);
+                        updateStatus('Error: ' + data.message);
                     }
                 })
-                .catch(error => console.error('Error:', error));
+                .catch(error => {
+                    console.error('Error:', error);
+                    updateStatus('Error: ' + error);
+                });
         }
         
-        // Function to stop movement
         function stopMove(direction) {
             fetch(`/move/${direction}/stop`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'error') {
                         console.error('Error:', data.message);
+                        updateStatus('Error: ' + data.message);
                     }
                 })
-                .catch(error => console.error('Error:', error));
+                .catch(error => {
+                    console.error('Error:', error);
+                    updateStatus('Error: ' + error);
+                });
         }
         
-        // Setup controls for both mouse and touch events
+        // PS4 button functions
+        function toggleMode(mode) {
+            fetch(`/toggle/${mode}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateStatus(`${mode} mode: ${data.active ? 'ON' : 'OFF'}`);
+                    } else {
+                        updateStatus('Error: ' + data.message);
+                    }
+                })
+                .catch(error => updateStatus('Error: ' + error));
+        }
+        
+        function toggleLeds() {
+            fetch('/toggle/leds')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateStatus(`Button LEDs: ${data.active ? 'ON' : 'OFF'}`);
+                    } else {
+                        updateStatus('Error: ' + data.message);
+                    }
+                })
+                .catch(error => updateStatus('Error: ' + error));
+        }
+        
+        function updateStatus(text) {
+            document.getElementById('status-text').textContent = text;
+        }
+        
+        // Movement button event listeners
         ['forward', 'backward', 'left', 'right'].forEach(direction => {
             const button = document.getElementById(direction);
             
@@ -147,7 +220,7 @@
                 }
             });
             
-            // Touch events for mobile devices
+            // Touch events
             button.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 button.classList.add('active');
@@ -167,9 +240,10 @@
             });
         });
         
-        // Stop button functionality
+        // Stop button
         document.getElementById('stop').addEventListener('click', () => {
             stopMove('stop');
+            updateStatus('Stopped');
         });
     </script>
 </body>
