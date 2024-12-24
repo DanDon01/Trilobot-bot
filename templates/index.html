@@ -45,10 +45,9 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 10px;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            max-width: 300px;
+            margin: 20px auto;
+            padding: 10px;
         }
         
         .ps4-buttons {
@@ -104,7 +103,8 @@
             grid-template-columns: repeat(2, 1fr);
             gap: 10px;
             max-width: 300px;
-            margin: 0 auto;
+            margin: 20px auto;
+            padding: 10px;
         }
         
         .ps4-btn {
@@ -125,6 +125,25 @@
         .circle { background-color: #e74c3c; }
         .cross { background-color: #3498db; }
         .square { background-color: #9b59b6; }
+        
+        .direction-btn {
+            padding: 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .direction-btn:active {
+            opacity: 0.7;
+        }
+        
+        #stop {
+            background-color: #dc3545;
+        }
     </style>
 </head>
 <body>
@@ -138,23 +157,23 @@
         <div class="control-section">
             <!-- Movement Control Pad -->
             <div class="control-pad">
-                <div class="empty"></div>
-                <button id="forward">↑</button>
-                <div class="empty"></div>
-                <button id="left">←</button>
-                <button id="stop">Stop</button>
-                <button id="right">→</button>
-                <div class="empty"></div>
-                <button id="backward">↓</button>
-                <div class="empty"></div>
+                <div></div>
+                <button id="forward" class="direction-btn">▲</button>
+                <div></div>
+                <button id="left" class="direction-btn">◄</button>
+                <button id="stop" class="direction-btn">■</button>
+                <button id="right" class="direction-btn">►</button>
+                <div></div>
+                <button id="backward" class="direction-btn">▼</button>
+                <div></div>
             </div>
             
             <!-- PS4 Button Controls -->
             <div class="ps4-buttons">
-                <button class="triangle" onclick="toggleMode('party')">Triangle<br>(Party Mode)</button>
-                <button class="circle" onclick="toggleMode('tank')">Circle<br>(Tank Mode)</button>
-                <button class="cross" onclick="toggleLeds()">Cross<br>(Button LEDs)</button>
-                <button class="square" onclick="toggleMode('knight')">Square<br>(Knight Rider)</button>
+                <button class="ps4-btn triangle" data-button="triangle">Triangle</button>
+                <button class="ps4-btn circle" data-button="circle">Circle</button>
+                <button class="ps4-btn cross" data-button="cross">Cross</button>
+                <button class="ps4-btn square" data-button="square">Square</button>
             </div>
         </div>
         
@@ -162,33 +181,6 @@
             <button onclick="setOverlay('normal')" class="overlay-btn">Normal View</button>
             <button onclick="setOverlay('night_vision')" class="overlay-btn">Night Vision</button>
             <button onclick="setOverlay('targeting')" class="overlay-btn">Targeting</button>
-        </div>
-        
-        <div class="ps4-buttons" style="margin: 20px 0; text-align: center;">
-            <button class="ps4-btn triangle" onmousedown="handleButton('triangle', 'press')" 
-                    onmouseup="handleButton('triangle', 'release')" 
-                    ontouchstart="handleButton('triangle', 'press')" 
-                    ontouchend="handleButton('triangle', 'release')">
-                Triangle
-            </button>
-            <button class="ps4-btn circle" onmousedown="handleButton('circle', 'press')" 
-                    onmouseup="handleButton('circle', 'release')"
-                    ontouchstart="handleButton('circle', 'press')" 
-                    ontouchend="handleButton('circle', 'release')">
-                Circle
-            </button>
-            <button class="ps4-btn cross" onmousedown="handleButton('cross', 'press')" 
-                    onmouseup="handleButton('cross', 'release')"
-                    ontouchstart="handleButton('cross', 'press')" 
-                    ontouchend="handleButton('cross', 'release')">
-                Cross
-            </button>
-            <button class="ps4-btn square" onmousedown="handleButton('square', 'press')" 
-                    onmouseup="handleButton('square', 'release')"
-                    ontouchstart="handleButton('square', 'press')" 
-                    ontouchend="handleButton('square', 'release')">
-                Square
-            </button>
         </div>
         
         <div id="status" style="text-align: center; margin: 10px 0;">
@@ -201,38 +193,46 @@
         
         // Movement control
         function startMove(direction) {
-            if (!isMoving) {  // Prevent multiple start requests
-                isMoving = true;
-                fetch(`/move/${direction}/start`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'error') {
-                            console.error('Error:', data.message);
-                            updateStatus('Error: ' + data.message);
-                            isMoving = false;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        updateStatus('Error: ' + error);
-                        isMoving = false;
-                    });
-            }
-        }
-        
-        function stopMove(direction) {
-            isMoving = false;
-            fetch(`/move/${direction}/stop`)
-                .then(response => response.json())
+            console.log(`Starting movement: ${direction}`);  // Debug log
+            fetch(`/move/${direction}/start`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    if (data.status === 'error') {
-                        console.error('Error:', data.message);
-                        updateStatus('Error: ' + data.message);
+                    if (data.status === 'success') {
+                        document.getElementById('status-text').textContent = `Moving: ${direction}`;
+                    } else {
+                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    updateStatus('Error: ' + error);
+                    document.getElementById('status-text').textContent = `Error: ${error}`;
+                });
+        }
+        
+        function stopMove(direction) {
+            console.log(`Stopping movement: ${direction}`);  // Debug log
+            fetch(`/move/${direction}/stop`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('status-text').textContent = 'Stopped';
+                    } else {
+                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('status-text').textContent = `Error: ${error}`;
                 });
         }
         
@@ -268,51 +268,39 @@
         }
         
         // Movement button event listeners
-        ['forward', 'backward', 'left', 'right'].forEach(direction => {
-            const button = document.getElementById(direction);
-            
-            // Mouse events
-            button.addEventListener('mousedown', () => {
-                button.classList.add('active');
-                startMove(direction);
-            });
-            
-            button.addEventListener('mouseup', () => {
-                button.classList.remove('active');
-                stopMove(direction);
-            });
-            
-            button.addEventListener('mouseleave', () => {
-                if (button.classList.contains('active')) {
-                    button.classList.remove('active');
-                    stopMove(direction);
+        document.addEventListener('DOMContentLoaded', function() {
+            ['forward', 'backward', 'left', 'right'].forEach(direction => {
+                const button = document.getElementById(direction);
+                if (button) {
+                    button.addEventListener('mousedown', () => startMove(direction));
+                    button.addEventListener('mouseup', () => stopMove(direction));
+                    button.addEventListener('mouseleave', () => stopMove(direction));
+                    button.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        startMove(direction);
+                    });
+                    button.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        stopMove(direction);
+                    });
                 }
             });
-            
-            // Touch events
-            button.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                button.classList.add('active');
-                startMove(direction);
-            });
-            
-            button.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                button.classList.remove('active');
-                stopMove(direction);
-            });
-            
-            button.addEventListener('touchcancel', (e) => {
-                e.preventDefault();
-                button.classList.remove('active');
-                stopMove(direction);
-            });
-        });
-        
-        // Stop button
-        document.getElementById('stop').addEventListener('click', () => {
-            stopMove('stop');
-            updateStatus('Stopped');
+
+            // Add stop button handler
+            const stopButton = document.getElementById('stop');
+            if (stopButton) {
+                stopButton.addEventListener('click', () => {
+                    fetch('/stop')
+                        .then(response => response.json())
+                        .then(data => {
+                            document.getElementById('status-text').textContent = 'Emergency Stop';
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            document.getElementById('status-text').textContent = `Error: ${error}`;
+                        });
+                });
+            }
         });
         
         // Add this to your JavaScript

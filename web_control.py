@@ -197,6 +197,47 @@ def handle_button(button_name, action):
         print(f"Button error: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/move/<direction>/<action>')
+def move(direction, action):
+    """Handle movement commands"""
+    try:
+        speed = SPEED  # Using the global SPEED value
+        
+        if action == 'start':
+            if direction == 'forward':
+                tbot.set_left_speed(speed)
+                tbot.set_right_speed(speed)
+            elif direction == 'backward':
+                tbot.set_left_speed(-speed)
+                tbot.set_right_speed(-speed)
+            elif direction == 'left':
+                tbot.set_left_speed(-speed)
+                tbot.set_right_speed(speed)
+            elif direction == 'right':
+                tbot.set_left_speed(speed)
+                tbot.set_right_speed(-speed)
+        elif action == 'stop':
+            tbot.disable_motors()
+            
+        return jsonify({
+            'status': 'success',
+            'direction': direction,
+            'action': action
+        })
+        
+    except Exception as e:
+        print(f"Movement error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/stop')
+def stop():
+    """Stop all motors"""
+    try:
+        tbot.disable_motors()
+        return jsonify({'status': 'success', 'message': 'Motors stopped'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
 if __name__ == '__main__':
     try:
         # Initialize camera
