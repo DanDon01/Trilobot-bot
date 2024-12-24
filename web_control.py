@@ -3,12 +3,20 @@ from trilobot import Trilobot, NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT,
 from trilobot import LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
 import threading
 import time
+from picamera2 import Picamera2
+from picamera2.encoders import MJPEGEncoder
+from picamera2.outputs import FileOutput
+import io
+import logging
+import socketserver
+from http import server
+from threading import Condition
 
 app = Flask(__name__)
 tbot = Trilobot()
 
 # Configuration
-SPEED = 0.6  # 60% speed for safety
+SPEED = 1.0        # Maximum speed
 control_lock = threading.Lock()
 
 # Light show constants
@@ -55,7 +63,66 @@ stop_light_shows = threading.Event()
 # Add these global variables at the top
 current_speeds = {'left': 0, 'right': 0}
 is_moving = False
-ACCELERATION = 0.1  # For smooth speed changes
+ACCELERATION = 0.5  # Faster acceleration response
+
+# Add these classes for camera streaming
+class StreamingOutput(io.BufferedIOBase):
+    def __init__(self):
+        self.frame = None
+        self.condition = Condition()
+
+    def write(self, buf):
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
+
+class StreamingHandler(server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/stream.mjpg':
+            self.send_response(200)
+            self.send_header('Age', 0)
+            self.send_header('Cache-Control', 'no-cache, private')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
+            self.end_headers()
+            try:
+                while True:
+                    with output.condition:
+                        output.condition.wait()
+                        frame = output.frame
+                    self.wfile.write(b'--FRAME\r\n')
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', len(frame))
+                    self.end_headers()
+                    self.wfile.write(frame)
+                    self.wfile.write(b'\r\n')
+            except Exception as e:
+                logging.warning(
+                    'Removed streaming client %s: %s',
+                    self.client_address, str(e))
+        else:
+            self.send_error(404)
+            self.end_headers()
+
+class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+# Initialize camera
+def init_camera():
+    global picam2, output, encoder
+    picam2 = Picamera2()
+    picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
+    output = StreamingOutput()
+    encoder = MJPEGEncoder(bitrate=1000000)
+    picam2.start_recording(encoder, FileOutput(output))
+    return output
+
+# Start camera server
+def start_camera_server():
+    address = ('', 8000)  # Port 8000
+    server = StreamingServer(address, StreamingHandler)
+    server.serve_forever()
 
 def knight_rider_effect():
     """Run the Knight Rider light effect"""
@@ -241,6 +308,15 @@ def cleanup():
 
 if __name__ == '__main__':
     try:
+        # Initialize camera and start streaming server
+        output = init_camera()
+        camera_thread = threading.Thread(target=start_camera_server)
+        camera_thread.daemon = True
+        camera_thread.start()
+        
+        # Start Flask app
         app.run(host='0.0.0.0', port=5000, debug=True)
     finally:
         cleanup()
+        if 'picam2' in globals():
+            picam2.stop_recording()

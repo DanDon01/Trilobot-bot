@@ -104,7 +104,7 @@
     <div class="container">
         <!-- Camera Feed -->
         <div class="camera-feed">
-            <img src="http://192.168.0.137:8000/stream.mjpg" alt="Camera Feed">
+            <img src="/stream.mjpg" alt="Camera Feed" onerror="this.src='/static/no-camera.png'">
         </div>
         
         <div class="control-section">
@@ -252,6 +252,14 @@
         document.getElementById('stop').addEventListener('click', () => {
             stopMove('stop');
             updateStatus('Stopped');
+        });
+        
+        // Add this to your JavaScript
+        document.querySelector('.camera-feed img').addEventListener('error', function() {
+            updateStatus('Camera feed error - trying to reconnect...');
+            setTimeout(() => {
+                this.src = this.src;  // Attempt to reload the stream
+            }, 5000);  // Try every 5 seconds
         });
     </script>
 </body>
