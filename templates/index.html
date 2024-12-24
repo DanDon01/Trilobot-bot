@@ -131,13 +131,13 @@
             </div>
         </div>
         
-        <div class="overlay-controls" style="margin: 10px 0;">
+        <div class="overlay-controls" style="margin: 10px 0; text-align: center;">
             <button onclick="setOverlay('normal')" class="overlay-btn">Normal View</button>
             <button onclick="setOverlay('night_vision')" class="overlay-btn">Night Vision</button>
             <button onclick="setOverlay('targeting')" class="overlay-btn">Targeting</button>
         </div>
         
-        <div class="status">
+        <div id="status" style="text-align: center; margin: 10px 0;">
             Status: <span id="status-text">Ready</span>
         </div>
     </div>
@@ -270,23 +270,22 @@
         });
         
         function setOverlay(mode) {
-            // Update button states
-            document.querySelectorAll('.overlay-btn').forEach(btn => {
-                btn.style.backgroundColor = '#007bff';
-            });
-            event.target.style.backgroundColor = '#004494';
-            
             fetch(`/overlay/${mode}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        updateStatus(`Overlay mode: ${mode}`);
+                        document.getElementById('status-text').textContent = `Mode: ${mode}`;
+                        // Update button styles
+                        document.querySelectorAll('.overlay-btn').forEach(btn => {
+                            btn.style.opacity = '1';
+                        });
+                        event.target.style.opacity = '0.7';
                     } else {
-                        updateStatus(`Error: ${data.message}`);
+                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
                     }
                 })
                 .catch(error => {
-                    updateStatus(`Error: ${error}`);
+                    document.getElementById('status-text').textContent = `Error: ${error}`;
                 });
         }
     </script>
