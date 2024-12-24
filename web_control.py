@@ -31,10 +31,20 @@ button_states = {
     'square': False
 }
 
+# Add these global variables for tracking states
+button_leds_active = False
+knight_rider_active = False
+party_mode_active = False
+light_show_thread = None
+stop_light_shows = threading.Event()
+
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
         self.frame = None
         self.condition = Condition()
+        self.rec_dot_visible = True  # For blinking REC dot
+        self.last_blink = time.time()
+        self.blink_interval = 1.0  # Blink every second
         
     def write(self, buf):
         try:
@@ -44,23 +54,76 @@ class StreamingOutput(io.BufferedIOBase):
             
             if frame is None:
                 return
-            
-            # Apply overlays based on mode
-            if overlay_mode == 'normal':
-                # Add timestamp
-                cv2.putText(frame, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                          (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
-            elif overlay_mode == 'night_vision':
-                # Simple green tint
+            # Get frame dimensions
+            h, w = frame.shape[:2]
+            
+            # Create semi-transparent overlay for text background
+            overlay = frame.copy()
+            
+            # Add digital clock (top right)
+            current_time = datetime.now().strftime('%H:%M:%S')
+            clock_text_size = cv2.getTextSize(current_time, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)[0]
+            clock_x = w - clock_text_size[0] - 20
+            # Draw semi-transparent background for clock
+            cv2.rectangle(overlay, 
+                        (clock_x - 10, 10), 
+                        (w - 10, 50), 
+                        (0, 0, 0), 
+                        -1)
+            cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+            # Draw clock text
+            cv2.putText(frame, current_time, 
+                       (clock_x, 40),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+            
+            # Add REC indicator with blinking dot (top left)
+            current_time = time.time()
+            if current_time - self.last_blink >= self.blink_interval:
+                self.rec_dot_visible = not self.rec_dot_visible
+                self.last_blink = current_time
+            
+            if self.rec_dot_visible:
+                # Draw semi-transparent background for REC
+                cv2.rectangle(overlay, 
+                            (10, 10), 
+                            (120, 50), 
+                            (0, 0, 0), 
+                            -1)
+                cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+                # Draw REC text and dot
+                cv2.circle(frame, (30, 30), 8, (0, 0, 255), -1)  # Red dot
+                cv2.putText(frame, "REC", 
+                           (50, 40),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
+            # Add date (bottom left)
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            # Draw semi-transparent background for date
+            cv2.rectangle(overlay, 
+                        (10, h - 50), 
+                        (200, h - 10), 
+                        (0, 0, 0), 
+                        -1)
+            cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+            # Draw date text
+            cv2.putText(frame, current_date, 
+                       (20, h - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            
+            # Apply mode-specific overlays
+            if overlay_mode == 'night_vision':
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 frame = cv2.applyColorMap(frame, cv2.COLORMAP_BONE)
                 
             elif overlay_mode == 'targeting':
-                # Simple crosshair
-                h, w = frame.shape[:2]
-                cv2.line(frame, (w//2, h//2 - 20), (w//2, h//2 + 20), (0, 0, 255), 2)
-                cv2.line(frame, (w//2 - 20, h//2), (w//2 + 20, h//2), (0, 0, 255), 2)
+                # Add targeting overlay
+                center_x, center_y = w//2, h//2
+                cv2.line(frame, (center_x - 20, center_y), 
+                        (center_x + 20, center_y), (0, 0, 255), 2)
+                cv2.line(frame, (center_x, center_y - 20), 
+                        (center_x, center_y + 20), (0, 0, 255), 2)
+                cv2.circle(frame, (center_x, center_y), 50, (0, 0, 255), 1)
             
             # Encode frame
             _, encoded_frame = cv2.imencode('.jpg', frame)
@@ -144,57 +207,116 @@ def set_overlay(mode):
         print(f"Overlay error: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-def cleanup():
-    global camera
-    if camera:
-        try:
-            camera.stop_recording()
-            camera.close()
-        except:
-            pass
-    tbot.disable_motors()
+def knight_rider_effect():
+    """Run the Knight Rider light effect"""
+    lights = [
+        LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT, LIGHT_REAR_LEFT,
+        LIGHT_REAR_RIGHT, LIGHT_MIDDLE_RIGHT, LIGHT_FRONT_RIGHT
+    ]
+    current_led = 0
+    direction = 1
+    
+    while not stop_light_shows.is_set() and knight_rider_active:
+        tbot.clear_underlighting(show=False)
+        tbot.set_underlight(lights[current_led], (255, 0, 0), show=True)
+        
+        current_led += direction
+        if current_led >= len(lights) - 1:
+            current_led = len(lights) - 2
+            direction = -1
+        elif current_led <= 0:
+            current_led = 1
+            direction = 1
+            
+        time.sleep(0.1)
+
+def party_mode_effect():
+    """Run the party mode light effect"""
+    colors = [
+        (255, 0, 0),    # Red
+        (0, 255, 0),    # Green
+        (0, 0, 255),    # Blue
+        (255, 255, 0),  # Yellow
+        (255, 0, 255),  # Magenta
+        (0, 255, 255),  # Cyan
+    ]
+    current_color = 0
+    
+    while not stop_light_shows.is_set() and party_mode_active:
+        tbot.fill_underlighting(colors[current_color])
+        current_color = (current_color + 1) % len(colors)
+        time.sleep(0.2)
+
+def start_light_show(effect_function):
+    """Start a light show in a separate thread"""
+    global light_show_thread
+    stop_light_shows.clear()
+    
+    if light_show_thread and light_show_thread.is_alive():
+        stop_light_shows.set()
+        light_show_thread.join()
+    
+    light_show_thread = threading.Thread(target=effect_function)
+    light_show_thread.daemon = True
+    light_show_thread.start()
 
 @app.route('/button/<button_name>/<action>')
 def handle_button(button_name, action):
-    """Handle button presses"""
-    global button_states
+    """Handle PS4-style button presses"""
+    global button_leds_active, knight_rider_active, party_mode_active
+    
     try:
         is_active = (action == 'press')
-        button_states[button_name] = is_active
         
-        # Handle button actions
         if button_name == 'triangle':
-            # Triangle button - Toggle LED pattern
+            # Triangle - Toggle button LEDs
             if is_active:
-                tbot.fill_underlighting((0, 255, 0))  # Green
-            else:
-                tbot.clear_underlighting()
+                button_leds_active = not button_leds_active
+                for led in range(NUM_BUTTONS):
+                    tbot.set_button_led(led, button_leds_active)
                 
         elif button_name == 'circle':
-            # Circle button - Red lighting
+            # Circle - Knight Rider effect
             if is_active:
-                tbot.fill_underlighting((255, 0, 0))  # Red
-            else:
-                tbot.clear_underlighting()
+                knight_rider_active = not knight_rider_active
+                party_mode_active = False
+                if knight_rider_active:
+                    start_light_show(knight_rider_effect)
+                else:
+                    stop_light_shows.set()
+                    tbot.clear_underlighting()
                 
         elif button_name == 'cross':
-            # Cross button - Blue lighting
+            # Cross - Clear all effects
             if is_active:
-                tbot.fill_underlighting((0, 0, 255))  # Blue
-            else:
+                knight_rider_active = False
+                party_mode_active = False
+                stop_light_shows.set()
                 tbot.clear_underlighting()
+                for led in range(NUM_BUTTONS):
+                    tbot.set_button_led(led, False)
+                button_leds_active = False
                 
         elif button_name == 'square':
-            # Square button - Purple lighting
+            # Square - Party mode
             if is_active:
-                tbot.fill_underlighting((255, 0, 255))  # Purple
-            else:
-                tbot.clear_underlighting()
+                party_mode_active = not party_mode_active
+                knight_rider_active = False
+                if party_mode_active:
+                    start_light_show(party_mode_effect)
+                else:
+                    stop_light_shows.set()
+                    tbot.clear_underlighting()
         
         return jsonify({
             'status': 'success',
             'button': button_name,
-            'action': action
+            'action': action,
+            'states': {
+                'button_leds': button_leds_active,
+                'knight_rider': knight_rider_active,
+                'party_mode': party_mode_active
+            }
         })
         
     except Exception as e:
@@ -262,6 +384,16 @@ def stream():
     
     return Response(generate(),
                    mimetype='multipart/x-mixed-replace; boundary=FRAME')
+
+def cleanup():
+    """Cleanup function to run when shutting down"""
+    stop_light_shows.set()
+    if light_show_thread and light_show_thread.is_alive():
+        light_show_thread.join()
+    tbot.disable_motors()
+    tbot.clear_underlighting()
+    for led in range(NUM_BUTTONS):
+        tbot.set_button_led(led, False)
 
 if __name__ == '__main__':
     try:
