@@ -7,11 +7,36 @@
         body {
             font-family: Arial, sans-serif;
             display: flex;
+            flex-direction: column;  /* Stack elements vertically */
             justify-content: center;
             align-items: center;
             height: 100vh;
             margin: 0;
             background-color: #f0f0f0;
+        }
+        
+        /* Container for both camera and controls */
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+        }
+        
+        /* Camera feed styling */
+        .camera-feed {
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .camera-feed img {
+            width: 640px;
+            height: 480px;
+            border-radius: 5px;
         }
         
         /* Control pad layout */
@@ -35,7 +60,7 @@
             color: white;
             cursor: pointer;
             transition: background-color 0.3s;
-            touch-action: none; /* Prevents default touch behaviors */
+            touch-action: none;
         }
         
         button:hover {
@@ -43,7 +68,7 @@
         }
         
         button.active {
-            background-color: #004494; /* Darker color when active */
+            background-color: #004494;
         }
         
         .empty {
@@ -52,16 +77,24 @@
     </style>
 </head>
 <body>
-    <div class="control-pad">
-        <div class="empty"></div>
-        <button id="forward">↑</button>
-        <div class="empty"></div>
-        <button id="left">←</button>
-        <button id="stop">Stop</button>
-        <button id="right">→</button>
-        <div class="empty"></div>
-        <button id="backward">↓</button>
-        <div class="empty"></div>
+    <div class="container">
+        <!-- Camera Feed -->
+        <div class="camera-feed">
+            <img src="http://192.168.0.137:8000/stream.mjpg" alt="Camera Feed">
+        </div>
+        
+        <!-- Control Pad -->
+        <div class="control-pad">
+            <div class="empty"></div>
+            <button id="forward">↑</button>
+            <div class="empty"></div>
+            <button id="left">←</button>
+            <button id="stop">Stop</button>
+            <button id="right">→</button>
+            <div class="empty"></div>
+            <button id="backward">↓</button>
+            <div class="empty"></div>
+        </div>
     </div>
 
     <script>
