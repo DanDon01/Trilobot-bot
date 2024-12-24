@@ -131,10 +131,10 @@
             </div>
         </div>
         
-        <div class="overlay-controls">
-            <button onclick="setOverlay('normal')">Normal View</button>
-            <button onclick="setOverlay('night_vision')">Night Vision</button>
-            <button onclick="setOverlay('targeting')">Targeting</button>
+        <div class="overlay-controls" style="margin: 10px 0;">
+            <button onclick="setOverlay('normal')" class="overlay-btn">Normal View</button>
+            <button onclick="setOverlay('night_vision')" class="overlay-btn">Night Vision</button>
+            <button onclick="setOverlay('targeting')" class="overlay-btn">Targeting</button>
         </div>
         
         <div class="status">
@@ -270,12 +270,23 @@
         });
         
         function setOverlay(mode) {
+            // Update button states
+            document.querySelectorAll('.overlay-btn').forEach(btn => {
+                btn.style.backgroundColor = '#007bff';
+            });
+            event.target.style.backgroundColor = '#004494';
+            
             fetch(`/overlay/${mode}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
                         updateStatus(`Overlay mode: ${mode}`);
+                    } else {
+                        updateStatus(`Error: ${data.message}`);
                     }
+                })
+                .catch(error => {
+                    updateStatus(`Error: ${error}`);
                 });
         }
     </script>

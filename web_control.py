@@ -14,6 +14,7 @@ from threading import Condition
 import cv2
 import numpy as np
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 tbot = Trilobot()
@@ -81,20 +82,60 @@ class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
         self.frame = None
         self.condition = Condition()
-        self.overlay = CameraOverlay()
+        self.overlay_mode = 'normal'
 
     def write(self, buf):
-        nparr = np.frombuffer(buf, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # Apply selected overlay
-        frame = self.overlay.apply_overlay(frame)
-        
-        # Encode and store the frame
-        _, encoded_frame = cv2.imencode('.jpg', frame)
-        with self.condition:
-            self.frame = encoded_frame.tobytes()
-            self.condition.notify_all()
+        try:
+            # Convert buffer to numpy array
+            nparr = np.frombuffer(buf, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                print("Failed to decode frame")
+                return
+                
+            # Apply overlays based on mode
+            if self.overlay_mode == 'normal':
+                # Add timestamp
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                           0.7, (255, 255, 255), 2)
+                
+                # Add crosshair
+                h, w = frame.shape[:2]
+                center_x, center_y = w//2, h//2
+                cv2.line(frame, (center_x - 20, center_y), 
+                        (center_x + 20, center_y), (0, 255, 0), 2)
+                cv2.line(frame, (center_x, center_y - 20), 
+                        (center_x, center_y + 20), (0, 255, 0), 2)
+                
+            elif self.overlay_mode == 'night_vision':
+                # Convert to green night vision effect
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                frame[:,:,0] = 0  # Remove blue
+                frame[:,:,2] = 0  # Remove red
+                cv2.putText(frame, "NIGHT VISION", (frame.shape[1]//2 - 100, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+            elif self.overlay_mode == 'targeting':
+                # Add targeting overlay
+                h, w = frame.shape[:2]
+                center = (w//2, h//2)
+                cv2.circle(frame, center, 50, (0, 0, 255), 2)
+                cv2.circle(frame, center, 75, (0, 0, 255), 1)
+                cv2.line(frame, (center[0], 0), (center[0], h), (0, 0, 255), 1)
+                cv2.line(frame, (0, center[1]), (w, center[1]), (0, 0, 255), 1)
+            
+            # Encode the modified frame
+            _, encoded_frame = cv2.imencode('.jpg', frame)
+            
+            with self.condition:
+                self.frame = encoded_frame.tobytes()
+                self.condition.notify_all()
+                
+        except Exception as e:
+            print(f"Error in frame processing: {e}")
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -128,29 +169,29 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-# Initialize camera
-def init_camera():
-    global picam2, output, encoder
-    try:
-        # Try to clean up any existing camera instances
-        if 'picam2' in globals() and picam2:
-            try:
-                picam2.stop_recording()
-                picam2.close()
-            except:
-                pass
+# Add these near the top of your file
+camera_initialized = False
+output = None
 
-        # Small delay to ensure camera is released
-        time.sleep(1)
+def init_camera():
+    """Initialize the camera with better error handling"""
+    global picam2, output, camera_initialized
+    try:
+        # Kill any existing camera processes
+        os.system('sudo fuser -k /dev/video0 2>/dev/null')
+        time.sleep(1)  # Wait for camera to be released
         
         picam2 = Picamera2()
         picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
         output = StreamingOutput()
         encoder = MJPEGEncoder(bitrate=1000000)
         picam2.start_recording(encoder, FileOutput(output))
+        camera_initialized = True
+        print("Camera initialized successfully")
         return output
     except Exception as e:
         print(f"Camera initialization error: {e}")
+        camera_initialized = False
         return None
 
 # Start camera server
@@ -341,80 +382,38 @@ def cleanup():
     for led in range(NUM_BUTTONS):
         tbot.set_button_led(led, False)
 
-class CameraOverlay:
-    def __init__(self):
-        self.overlay_mode = 'normal'  # normal, night_vision, targeting
-        
-    def apply_overlay(self, frame):
-        if self.overlay_mode == 'normal':
-            return self._normal_overlay(frame)
-        elif self.overlay_mode == 'night_vision':
-            return self._night_vision_overlay(frame)
-        elif self.overlay_mode == 'targeting':
-            return self._targeting_overlay(frame)
-        return frame
-    
-    def _normal_overlay(self, frame):
-        # Basic overlay (timestamp, battery, etc.)
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cv2.putText(frame, timestamp, (10, 30), FONT, FONT_SCALE, WHITE, THICKNESS)
-        return frame
-    
-    def _night_vision_overlay(self, frame):
-        # Add night vision effect
-        frame = cv2.applyColorMap(frame, cv2.COLORMAP_BONE)
-        cv2.putText(frame, "NIGHT VISION", (frame.shape[1]//2 - 100, 30), 
-                   FONT, FONT_SCALE, GREEN, THICKNESS)
-        return frame
-    
-    def _targeting_overlay(self, frame):
-        # Add targeting overlay
-        h, w = frame.shape[:2]
-        center = (w//2, h//2)
-        
-        # Draw targeting circles
-        cv2.circle(frame, center, 50, RED, 2)
-        cv2.circle(frame, center, 75, RED, 1)
-        cv2.circle(frame, center, 100, RED, 1)
-        
-        # Draw crosshairs
-        cv2.line(frame, (center[0], 0), (center[0], h), RED, 1)
-        cv2.line(frame, (0, center[1]), (w, center[1]), RED, 1)
-        
-        return frame
-
 @app.route('/overlay/<mode>')
 def set_overlay(mode):
-    if hasattr(output, 'overlay'):
-        output.overlay.overlay_mode = mode
-        return jsonify({'status': 'success', 'mode': mode})
-    return jsonify({'status': 'error', 'message': 'Overlay not available'})
+    """Set the overlay mode"""
+    global output
+    try:
+        if output:
+            print(f"Changing overlay mode to: {mode}")  # Debug print
+            output.overlay_mode = mode
+            return jsonify({'status': 'success', 'mode': mode})
+        else:
+            print("Output object not initialized")  # Debug print
+            return jsonify({'status': 'error', 'message': 'Camera not initialized'})
+    except Exception as e:
+        print(f"Error setting overlay: {e}")  # Debug print
+        return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
     try:
-        # Try to initialize camera
-        camera_active = False
-        try:
-            output = init_camera()
-            if output:
-                camera_thread = threading.Thread(target=start_camera_server)
-                camera_thread.daemon = True
-                camera_thread.start()
-                camera_active = True
-                print("Camera initialized successfully")
-            else:
-                print("Camera initialization failed - web control will run without camera")
-        except Exception as e:
-            print(f"Camera error: {e}")
-            print("Web control will run without camera")
-
+        # Initialize camera
+        output = init_camera()
+        if output:
+            camera_thread = threading.Thread(target=start_camera_server)
+            camera_thread.daemon = True
+            camera_thread.start()
+            print("Camera server started")
+        
         # Start Flask app
         app.run(host='0.0.0.0', port=5000, debug=True)
     finally:
-        cleanup()
-        if camera_active and 'picam2' in globals():
+        if camera_initialized and 'picam2' in globals():
             try:
                 picam2.stop_recording()
                 picam2.close()
-            except:
-                pass
+            except Exception as e:
+                print(f"Error during cleanup: {e}")
