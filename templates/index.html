@@ -136,23 +136,31 @@
     </div>
 
     <script>
+        let isMoving = false;
+        
         // Movement control
         function startMove(direction) {
-            fetch(`/move/${direction}/start`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'error') {
-                        console.error('Error:', data.message);
-                        updateStatus('Error: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    updateStatus('Error: ' + error);
-                });
+            if (!isMoving) {  // Prevent multiple start requests
+                isMoving = true;
+                fetch(`/move/${direction}/start`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'error') {
+                            console.error('Error:', data.message);
+                            updateStatus('Error: ' + data.message);
+                            isMoving = false;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        updateStatus('Error: ' + error);
+                        isMoving = false;
+                    });
+            }
         }
         
         function stopMove(direction) {
+            isMoving = false;
             fetch(`/move/${direction}/stop`)
                 .then(response => response.json())
                 .then(data => {

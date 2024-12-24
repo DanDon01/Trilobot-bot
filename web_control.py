@@ -52,6 +52,11 @@ tank_mode_active = False
 light_show_thread = None
 stop_light_shows = threading.Event()
 
+# Add these global variables at the top
+current_speeds = {'left': 0, 'right': 0}
+is_moving = False
+ACCELERATION = 0.1  # For smooth speed changes
+
 def knight_rider_effect():
     """Run the Knight Rider light effect"""
     current_led = 0
@@ -104,41 +109,71 @@ def index():
 
 @app.route('/move/<direction>/<action>')
 def move(direction, action):
-    """Handle movement commands"""
+    """Handle movement commands with smooth acceleration"""
+    global current_speeds, is_moving
+    
     try:
         if action == 'start':
-            speed = SPEED if not tank_mode_active else SPEED * 0.7  # Reduce speed in tank mode
+            is_moving = True
+            speed = SPEED if not tank_mode_active else SPEED * 0.7
             
             if direction == 'forward':
-                tbot.set_left_speed(speed)
-                tbot.set_right_speed(speed)
+                target_speeds = {'left': speed, 'right': speed}
             elif direction == 'backward':
-                tbot.set_left_speed(-speed)
-                tbot.set_right_speed(-speed)
+                target_speeds = {'left': -speed, 'right': -speed}
             elif direction == 'left':
                 if tank_mode_active:
-                    tbot.set_left_speed(-speed)
-                    tbot.set_right_speed(speed)
+                    target_speeds = {'left': -speed, 'right': speed}
                 else:
-                    tbot.set_left_speed(-speed/2)
-                    tbot.set_right_speed(speed/2)
+                    target_speeds = {'left': -speed/2, 'right': speed/2}
             elif direction == 'right':
                 if tank_mode_active:
-                    tbot.set_left_speed(speed)
-                    tbot.set_right_speed(-speed)
+                    target_speeds = {'left': speed, 'right': -speed}
                 else:
-                    tbot.set_left_speed(speed/2)
-                    tbot.set_right_speed(-speed/2)
+                    target_speeds = {'left': speed/2, 'right': -speed/2}
+                    
+            # Smoothly adjust speeds
+            while is_moving and any(abs(current_speeds[motor] - target_speeds[motor]) > 0.01 for motor in ['left', 'right']):
+                for motor in ['left', 'right']:
+                    diff = target_speeds[motor] - current_speeds[motor]
+                    if abs(diff) > ACCELERATION:
+                        current_speeds[motor] += ACCELERATION if diff > 0 else -ACCELERATION
+                    else:
+                        current_speeds[motor] = target_speeds[motor]
+                
+                # Apply the new speeds
+                tbot.set_left_speed(current_speeds['left'])
+                tbot.set_right_speed(current_speeds['right'])
+                time.sleep(0.02)  # Small delay for smooth acceleration
+                
         elif action == 'stop':
+            is_moving = False
+            # Smoothly stop
+            while any(abs(current_speeds[motor]) > 0.01 for motor in ['left', 'right']):
+                for motor in ['left', 'right']:
+                    if abs(current_speeds[motor]) > ACCELERATION:
+                        current_speeds[motor] -= ACCELERATION if current_speeds[motor] > 0 else -ACCELERATION
+                    else:
+                        current_speeds[motor] = 0
+                
+                tbot.set_left_speed(current_speeds['left'])
+                tbot.set_right_speed(current_speeds['right'])
+                time.sleep(0.02)
+            
             tbot.disable_motors()
+            current_speeds = {'left': 0, 'right': 0}
             
         return jsonify({
             'status': 'success',
             'direction': direction,
-            'action': action
+            'action': action,
+            'speeds': current_speeds
         })
         
     except Exception as e:
+        is_moving = False
+        tbot.disable_motors()
+        current_speeds = {'left': 0, 'right': 0}
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/toggle/<mode>')
