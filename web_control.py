@@ -11,6 +11,9 @@ import logging
 import socketserver
 from http import server
 from threading import Condition
+import cv2
+import numpy as np
+from datetime import datetime
 
 app = Flask(__name__)
 tbot = Trilobot()
@@ -65,15 +68,32 @@ current_speeds = {'left': 0, 'right': 0}
 is_moving = False
 ACCELERATION = 0.5  # Faster acceleration response
 
+# Add these constants for overlay settings
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+FONT_SCALE = 0.7
+THICKNESS = 2
+WHITE = (255, 255, 255)
+RED = (0, 0, 255)  # BGR format
+GREEN = (0, 255, 0)
+
 # Add these classes for camera streaming
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
         self.frame = None
         self.condition = Condition()
+        self.overlay = CameraOverlay()
 
     def write(self, buf):
+        nparr = np.frombuffer(buf, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        # Apply selected overlay
+        frame = self.overlay.apply_overlay(frame)
+        
+        # Encode and store the frame
+        _, encoded_frame = cv2.imencode('.jpg', frame)
         with self.condition:
-            self.frame = buf
+            self.frame = encoded_frame.tobytes()
             self.condition.notify_all()
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
@@ -320,6 +340,55 @@ def cleanup():
     tbot.clear_underlighting()
     for led in range(NUM_BUTTONS):
         tbot.set_button_led(led, False)
+
+class CameraOverlay:
+    def __init__(self):
+        self.overlay_mode = 'normal'  # normal, night_vision, targeting
+        
+    def apply_overlay(self, frame):
+        if self.overlay_mode == 'normal':
+            return self._normal_overlay(frame)
+        elif self.overlay_mode == 'night_vision':
+            return self._night_vision_overlay(frame)
+        elif self.overlay_mode == 'targeting':
+            return self._targeting_overlay(frame)
+        return frame
+    
+    def _normal_overlay(self, frame):
+        # Basic overlay (timestamp, battery, etc.)
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cv2.putText(frame, timestamp, (10, 30), FONT, FONT_SCALE, WHITE, THICKNESS)
+        return frame
+    
+    def _night_vision_overlay(self, frame):
+        # Add night vision effect
+        frame = cv2.applyColorMap(frame, cv2.COLORMAP_BONE)
+        cv2.putText(frame, "NIGHT VISION", (frame.shape[1]//2 - 100, 30), 
+                   FONT, FONT_SCALE, GREEN, THICKNESS)
+        return frame
+    
+    def _targeting_overlay(self, frame):
+        # Add targeting overlay
+        h, w = frame.shape[:2]
+        center = (w//2, h//2)
+        
+        # Draw targeting circles
+        cv2.circle(frame, center, 50, RED, 2)
+        cv2.circle(frame, center, 75, RED, 1)
+        cv2.circle(frame, center, 100, RED, 1)
+        
+        # Draw crosshairs
+        cv2.line(frame, (center[0], 0), (center[0], h), RED, 1)
+        cv2.line(frame, (0, center[1]), (w, center[1]), RED, 1)
+        
+        return frame
+
+@app.route('/overlay/<mode>')
+def set_overlay(mode):
+    if hasattr(output, 'overlay'):
+        output.overlay.overlay_mode = mode
+        return jsonify({'status': 'success', 'mode': mode})
+    return jsonify({'status': 'error', 'message': 'Overlay not available'})
 
 if __name__ == '__main__':
     try:

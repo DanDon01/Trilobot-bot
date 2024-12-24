@@ -131,6 +131,12 @@
             </div>
         </div>
         
+        <div class="overlay-controls">
+            <button onclick="setOverlay('normal')">Normal View</button>
+            <button onclick="setOverlay('night_vision')">Night Vision</button>
+            <button onclick="setOverlay('targeting')">Targeting</button>
+        </div>
+        
         <div class="status">
             Status: <span id="status-text">Ready</span>
         </div>
@@ -262,6 +268,16 @@
                 this.src = this.src;  // Attempt to reload the stream
             }, 5000);  // Try every 5 seconds
         });
+        
+        function setOverlay(mode) {
+            fetch(`/overlay/${mode}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateStatus(`Overlay mode: ${mode}`);
+                    }
+                });
+        }
     </script>
 </body>
 </html>
