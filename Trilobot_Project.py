@@ -12,6 +12,7 @@ from multiprocessing import Process
 from threading import Condition
 from http import server
 from time import sleep
+import threading
 
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
@@ -107,12 +108,18 @@ PARTY_COLORS = [
 # Add these at the top of your file with other global variables
 knight_rider_active = False
 party_mode_active = False
+control_mode = 'ps4'  # or 'web'
+control_lock = threading.Lock()  # For thread-safe control switching
 
 # Distance thresholds in cm
 BAND1 = 20  # Distance where lights show yellow
 BAND2 = 80  # Distance where lights show yellow-green
 BAND3 = 100  # Distance where lights show green
 YELLOW_GREEN_POINT = 192  # Amount of red for mid-point between green and yellow
+
+# Add or update these constants at the top
+STICK_DEADZONE = 0.15  # Increased deadzone (15%)
+MAX_SPEED = 0.8       # Maximum speed (80%)
 
 def blink_underlights(trilobot, group, color, nr_cycles=DEFAULT_NUM_CYCLES, blink_rate_sec=DEFAULT_BLINK_RATE_SEC):
     for cy in range(nr_cycles):
@@ -324,105 +331,134 @@ def create_ps4_controller(stick_deadzone_percent=0.05):
 
 # Function to handle motor control based on controller input
 def handle_motor_control(controller, tank_steer):
-    try:
-        if tank_steer:
-            # Tank steering mode (each stick controls one side)
-            ly = controller.read_axis("LY")
-            ry = controller.read_axis("RY")
+    """Handle motor control with control mode check"""
+    global control_mode
+    
+    with control_lock:
+        if control_mode != 'ps4':
+            return  # Skip if not in PS4 control mode
             
-            # Apply exponential curve for finer control at low speeds
-            ly = math.copysign(ly * ly, ly)
-            ry = math.copysign(ry * ry, ry)
+        try:
+            if tank_steer:
+                # Tank steering mode (each stick controls one side)
+                left_y = -controller.read_axis("Left Y")   # Invert Y axis
+                right_y = -controller.read_axis("Right Y") # Invert Y axis
+                
+                # Apply deadzone
+                left_y = 0 if abs(left_y) < STICK_DEADZONE else left_y
+                right_y = 0 if abs(right_y) < STICK_DEADZONE else right_y
+                
+                # Apply speed scaling
+                left_speed = left_y * MAX_SPEED
+                right_speed = right_y * MAX_SPEED
+                
+            else:
+                # Arcade steering mode (left stick for both controls)
+                y_axis = -controller.read_axis("Left Y")    # Forward/backward
+                x_axis = controller.read_axis("Left X")     # Turning
+                
+                # Apply deadzone
+                y_axis = 0 if abs(y_axis) < STICK_DEADZONE else y_axis
+                x_axis = 0 if abs(x_axis) < STICK_DEADZONE else x_axis
+                
+                # Calculate motor speeds
+                left_speed = y_axis + x_axis
+                right_speed = y_axis - x_axis
+                
+                # Scale speeds to maintain proportional control
+                max_raw = max(abs(left_speed), abs(right_speed))
+                if max_raw > 1:
+                    left_speed /= max_raw
+                    right_speed /= max_raw
+                    
+                # Apply maximum speed limit
+                left_speed *= MAX_SPEED
+                right_speed *= MAX_SPEED
             
-            tbot.set_left_speed(-ly)
-            tbot.set_right_speed(-ry)
-        else:
-            # Normal steering mode (left stick for both motors)
-            lx = controller.read_axis("LX")
-            ly = -controller.read_axis("LY")  # Inverted for intuitive control
+            # Set motor speeds
+            if abs(left_speed) < STICK_DEADZONE and abs(right_speed) < STICK_DEADZONE:
+                # If both speeds are within deadzone, stop motors
+                tbot.disable_motors()
+            else:
+                tbot.set_left_speed(left_speed)
+                tbot.set_right_speed(right_speed)
             
-            # Apply exponential curve for finer control
-            lx = math.copysign(lx * lx, lx)
-            ly = math.copysign(ly * ly, ly)
-            
-            # Calculate motor speeds with improved turning
-            left_speed = ly + (lx * 0.7)  # Reduced turning sensitivity
-            right_speed = ly - (lx * 0.7)
-            
-            # Ensure speeds don't exceed limits
-            left_speed = max(min(left_speed, 1.0), -1.0)
-            right_speed = max(min(right_speed, 1.0), -1.0)
-            
-            tbot.set_left_speed(left_speed)
-            tbot.set_right_speed(right_speed)
-            
-    except ValueError:
-        tbot.disable_motors()
+        except Exception as e:
+            print(f"Motor control error: {e}")
+            tbot.disable_motors()  # Safety stop on error
 
 def handle_controller_input(controller, tank_steer, button_states):
-    global knight_rider_active, party_mode_active
+    global control_mode, knight_rider_active, party_mode_active
     current_time = time.time()
     
-    try:
-        # Tank steer toggle
-        if controller.read_button("L1") and tank_steer:
-            tank_steer = False
-            print("\rTank Steering Disabled ")
-        elif controller.read_button("R1") and not tank_steer:
-            tank_steer = True
-            print("\rTank Steering Enabled  ")
+    with control_lock:
+        if control_mode != 'ps4':
+            return tank_steer, button_states  # Skip if not in PS4 mode
+            
+        try:
+            # Tank steer toggle
+            if controller.read_button("L1") and tank_steer:
+                tank_steer = False
+                print("\rTank Steering Disabled ")
+            elif controller.read_button("R1") and not tank_steer:
+                tank_steer = True
+                print("\rTank Steering Enabled  ")
 
-        # Handle Cross button with debouncing (Button LEDs)
-        if controller.read_button("Cross"):
-            if not button_states['cross_pressed'] and (current_time - button_states['last_cross_time']) > BUTTON_DEBOUNCE_TIME:
-                button_states['cross_pressed'] = True
-                button_states['last_cross_time'] = current_time
-                # Toggle button LEDs
-                button_states['button_leds_on'] = not button_states['button_leds_on']
-                for led in range(NUM_BUTTONS):
-                    tbot.set_button_led(led, button_states['button_leds_on'])
-        else:
-            button_states['cross_pressed'] = False
+            # Handle Cross button with debouncing (Button LEDs)
+            if controller.read_button("Cross"):
+                if not button_states['cross_pressed'] and (current_time - button_states['last_cross_time']) > BUTTON_DEBOUNCE_TIME:
+                    button_states['cross_pressed'] = True
+                    button_states['last_cross_time'] = current_time
+                    # Toggle button LEDs
+                    button_states['button_leds_on'] = not button_states['button_leds_on']
+                    for led in range(NUM_BUTTONS):
+                        tbot.set_button_led(led, button_states['button_leds_on'])
+            else:
+                button_states['cross_pressed'] = False
 
-        # Handle Square button with debouncing (Knight Rider effect)
-        if controller.read_button("Square"):
-            if not button_states['square_pressed'] and (current_time - button_states['last_square_time']) > BUTTON_DEBOUNCE_TIME:
-                button_states['square_pressed'] = True
-                button_states['last_square_time'] = current_time
-                knight_rider_active = not knight_rider_active
-                if knight_rider_active:
-                    party_mode_active = False
-                if not knight_rider_active:
-                    tbot.clear_underlighting()
-        else:
-            button_states['square_pressed'] = False
+            # Handle Square button with debouncing (Knight Rider effect)
+            if controller.read_button("Square"):
+                if not button_states['square_pressed'] and (current_time - button_states['last_square_time']) > BUTTON_DEBOUNCE_TIME:
+                    button_states['square_pressed'] = True
+                    button_states['last_square_time'] = current_time
+                    knight_rider_active = not knight_rider_active
+                    if knight_rider_active:
+                        party_mode_active = False
+                    if not knight_rider_active:
+                        tbot.clear_underlighting()
+            else:
+                button_states['square_pressed'] = False
 
-        # Handle Triangle button with debouncing (Party Mode)
-        if controller.read_button("Triangle"):
-            if not button_states['triangle_pressed'] and (current_time - button_states['last_triangle_time']) > BUTTON_DEBOUNCE_TIME:
-                button_states['triangle_pressed'] = True
-                button_states['last_triangle_time'] = current_time
-                party_mode_active = not party_mode_active
-                if party_mode_active:
-                    knight_rider_active = False
-                if not party_mode_active:
-                    tbot.clear_underlighting()
-        else:
-            button_states['triangle_pressed'] = False
+            # Handle Triangle button with debouncing (Party Mode)
+            if controller.read_button("Triangle"):
+                if not button_states['triangle_pressed'] and (current_time - button_states['last_triangle_time']) > BUTTON_DEBOUNCE_TIME:
+                    button_states['triangle_pressed'] = True
+                    button_states['last_triangle_time'] = current_time
+                    party_mode_active = not party_mode_active
+                    if party_mode_active:
+                        knight_rider_active = False
+                    if not party_mode_active:
+                        tbot.clear_underlighting()
+            else:
+                button_states['triangle_pressed'] = False
 
-        # Handle Circle button with debouncing
-        if controller.read_button("Circle"):
-            if not button_states['circle_pressed'] and (current_time - button_states['last_circle_time']) > BUTTON_DEBOUNCE_TIME:
-                button_states['circle_pressed'] = True
-                button_states['last_circle_time'] = current_time
-                capture_image_with_raspistill()
-        else:
-            button_states['circle_pressed'] = False
+            # Handle Circle button with debouncing
+            if controller.read_button("Circle"):
+                if not button_states['circle_pressed'] and (current_time - button_states['last_circle_time']) > BUTTON_DEBOUNCE_TIME:
+                    button_states['circle_pressed'] = True
+                    button_states['last_circle_time'] = current_time
+                    capture_image_with_raspistill()
+            else:
+                button_states['circle_pressed'] = False
 
-    except ValueError:
-        pass
+            # Handle PS button
+            if controller.read_button("PS"):
+                control_mode = 'ps4'  # PS button can force PS4 control
 
-    return tank_steer, button_states
+        except ValueError:
+            pass
+
+        return tank_steer, button_states
 
 def function_for_triangle_button():
     print("Triangle button function activated")
@@ -545,6 +581,23 @@ def handle_distance_warning(distance):
             tbot.set_underlight(LIGHT_FRONT_LEFT, 0, 0, 0, show=False)
             tbot.set_underlight(LIGHT_FRONT_RIGHT, 0, 0, 0, show=False)
         tbot.show_underlighting()
+
+def move(direction, action):
+    """Web control movement function"""
+    global control_mode
+    
+    with control_lock:
+        control_mode = 'web'  # Switch to web control
+        try:
+            # Existing web movement code...
+            if action == 'start':
+                if direction == 'forward':
+                    tbot.set_left_speed(SPEED)
+                    tbot.set_right_speed(SPEED)
+                # ... rest of movement code
+        finally:
+            if action == 'stop':
+                control_mode = 'ps4'  # Return control to PS4 when web movement stops
 
 # Main function
 def main():

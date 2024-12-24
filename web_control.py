@@ -25,15 +25,13 @@ def index():
 
 @app.route('/move/<direction>/<action>')
 def move(direction, action):
-    """Handle movement commands
-    Args:
-        direction: The direction to move ('forward', 'backward', 'left', 'right')
-        action: Whether to 'start' or 'stop' movement
-    """
-    try:
-        with movement_lock:  # Ensure thread-safe access to movement controls
+    """Handle movement commands"""
+    global control_mode
+    
+    with control_lock:
+        control_mode = 'web'  # Switch to web control
+        try:
             if action == 'start':
-                # Set movement based on direction
                 if direction == 'forward':
                     tbot.set_left_speed(SPEED)
                     tbot.set_right_speed(SPEED)
@@ -46,24 +44,26 @@ def move(direction, action):
                 elif direction == 'right':
                     tbot.set_left_speed(SPEED)
                     tbot.set_right_speed(-SPEED)
-                
-                current_movement['direction'] = direction
-                current_movement['is_active'] = True
-                
             elif action == 'stop':
-                # Stop all movement
                 tbot.disable_motors()
-                current_movement['direction'] = None
-                current_movement['is_active'] = False
-        
-        return jsonify({
-            'status': 'success', 
-            'direction': direction,
-            'action': action
-        })
-        
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)})
+                control_mode = 'ps4'  # Return control to PS4
+                
+            return jsonify({
+                'status': 'success',
+                'direction': direction,
+                'action': action
+            })
+            
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/status')
+def get_status():
+    """Get current control mode status"""
+    return jsonify({
+        'control_mode': control_mode,
+        'is_ps4_connected': True  # You'll need to modify this based on your controller status
+    })
 
 if __name__ == '__main__':
     # Run Flask app on all interfaces (0.0.0.0) so it's accessible from other devices
