@@ -1,5 +1,5 @@
-from flask import Flask, render_template, jsonify
-from trilobot import Trilobot
+from flask import Flask, render_template, jsonify, Response
+from trilobot import Trilobot, NUM_BUTTONS
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
@@ -45,9 +45,9 @@ class StreamingOutput(io.BufferedIOBase):
             if frame is None:
                 return
             
-            # Simple overlays based on mode
+            # Apply overlays based on mode
             if overlay_mode == 'normal':
-                # Add timestamp only
+                # Add timestamp
                 cv2.putText(frame, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
@@ -64,6 +64,7 @@ class StreamingOutput(io.BufferedIOBase):
             
             # Encode frame
             _, encoded_frame = cv2.imencode('.jpg', frame)
+            
             with self.condition:
                 self.frame = encoded_frame.tobytes()
                 self.condition.notify_all()
@@ -104,6 +105,7 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 def init_camera():
     global camera, output
     try:
+        # Kill any existing camera processes
         os.system('sudo fuser -k /dev/video0 2>/dev/null')
         time.sleep(1)
         
@@ -127,7 +129,9 @@ def init_camera():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """Serve the main page"""
+    # Pass the stream URL to the template
+    return render_template('index.html', stream_url='/stream.mjpg')
 
 @app.route('/overlay/<mode>')
 def set_overlay(mode):
@@ -237,6 +241,27 @@ def stop():
         return jsonify({'status': 'success', 'message': 'Motors stopped'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
+
+# Add this route for the camera stream
+@app.route('/stream.mjpg')
+def stream():
+    """Video streaming route"""
+    def generate():
+        while True:
+            try:
+                with output.condition:
+                    output.condition.wait()
+                    frame = output.frame
+                    
+                if frame is not None:
+                    yield (b'--FRAME\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            except Exception as e:
+                print(f"Streaming error: {e}")
+                break
+    
+    return Response(generate(),
+                   mimetype='multipart/x-mixed-replace; boundary=FRAME')
 
 if __name__ == '__main__':
     try:

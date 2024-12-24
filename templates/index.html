@@ -150,8 +150,8 @@
     <div class="container">
         <!-- Camera Feed -->
         <div class="camera-feed">
-            <img src="http://192.168.0.137:8000/stream.mjpg" alt="Camera Feed" 
-                 onerror="this.src='/static/no-camera.png'; updateStatus('Camera not available');">
+            <img src="{{ stream_url }}" alt="Camera Feed" 
+                 onerror="this.src='/static/no-camera.png'; handleStreamError();">
         </div>
         
         <div class="control-section">
@@ -344,6 +344,20 @@
                 .catch(error => {
                     document.getElementById('status-text').textContent = `Error: ${error}`;
                 });
+        }
+        
+        // Add this function to handle stream errors
+        function handleStreamError() {
+            console.log("Stream error detected");
+            document.getElementById('status-text').textContent = 'Camera stream error';
+            
+            // Try to reconnect after 5 seconds
+            setTimeout(() => {
+                const img = document.querySelector('.camera-feed img');
+                if (img) {
+                    img.src = "{{ stream_url }}";
+                }
+            }, 5000);
         }
     </script>
 </body>
