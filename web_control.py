@@ -111,12 +111,27 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 # Initialize camera
 def init_camera():
     global picam2, output, encoder
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
-    output = StreamingOutput()
-    encoder = MJPEGEncoder(bitrate=1000000)
-    picam2.start_recording(encoder, FileOutput(output))
-    return output
+    try:
+        # Try to clean up any existing camera instances
+        if 'picam2' in globals() and picam2:
+            try:
+                picam2.stop_recording()
+                picam2.close()
+            except:
+                pass
+
+        # Small delay to ensure camera is released
+        time.sleep(1)
+        
+        picam2 = Picamera2()
+        picam2.configure(picam2.create_video_configuration(main={"size": (640, 480)}))
+        output = StreamingOutput()
+        encoder = MJPEGEncoder(bitrate=1000000)
+        picam2.start_recording(encoder, FileOutput(output))
+        return output
+    except Exception as e:
+        print(f"Camera initialization error: {e}")
+        return None
 
 # Start camera server
 def start_camera_server():
@@ -308,15 +323,29 @@ def cleanup():
 
 if __name__ == '__main__':
     try:
-        # Initialize camera and start streaming server
-        output = init_camera()
-        camera_thread = threading.Thread(target=start_camera_server)
-        camera_thread.daemon = True
-        camera_thread.start()
-        
+        # Try to initialize camera
+        camera_active = False
+        try:
+            output = init_camera()
+            if output:
+                camera_thread = threading.Thread(target=start_camera_server)
+                camera_thread.daemon = True
+                camera_thread.start()
+                camera_active = True
+                print("Camera initialized successfully")
+            else:
+                print("Camera initialization failed - web control will run without camera")
+        except Exception as e:
+            print(f"Camera error: {e}")
+            print("Web control will run without camera")
+
         # Start Flask app
         app.run(host='0.0.0.0', port=5000, debug=True)
     finally:
         cleanup()
-        if 'picam2' in globals():
-            picam2.stop_recording()
+        if camera_active and 'picam2' in globals():
+            try:
+                picam2.stop_recording()
+                picam2.close()
+            except:
+                pass

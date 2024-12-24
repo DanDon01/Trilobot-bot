@@ -233,14 +233,13 @@ def initialize_camera():
         return None
 
 def cleanup_camera():
+    global camera
     try:
-        # Kill any existing camera processes without camera service reset
-        subprocess.run(['sudo', 'pkill', '-f', 'camera'], timeout=2)
-        subprocess.run(['sudo', 'pkill', '-f', 'libcamera'], timeout=2)
-        subprocess.run(['sudo', 'pkill', '-f', 'picamera2'], timeout=2)
-        time.sleep(2)  # Give system time to clean up
-    except Exception as e:
-        print(f"Cleanup warning: {str(e)}")
+        if 'camera' in globals() and camera:
+            camera.stop_recording()
+            camera.close()
+    except:
+        pass
 
 def start_camera_stream():
     global picam2, output

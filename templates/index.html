@@ -104,7 +104,8 @@
     <div class="container">
         <!-- Camera Feed -->
         <div class="camera-feed">
-            <img src="/stream.mjpg" alt="Camera Feed" onerror="this.src='/static/no-camera.png'">
+            <img src="http://192.168.0.137:8000/stream.mjpg" alt="Camera Feed" 
+                 onerror="this.src='/static/no-camera.png'; updateStatus('Camera not available');">
         </div>
         
         <div class="control-section">
