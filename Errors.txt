@@ -1,26 +1,32 @@
->> %Run web_control.py
-[3:16:15.917947360] [3521]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
-[3:16:15.985871230] [3535] ERROR V4L2 v4l2_device.cpp:351 'imx477 10-001a': Unable to set controls: Device or resource busy
-[3:16:16.034527758] [3535]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
-[3:16:16.044576530] [3535]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media3 and ISP device /dev/media0
-[3:16:16.044993349] [3535]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
-[3:16:16.058459124] [3521]  INFO Camera camera.cpp:1003 Pipeline handler in use by another process
+[3:50:58.599295474] [4873]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
+[3:50:58.675871721] [4900] ERROR V4L2 v4l2_device.cpp:351 'imx477 10-001a': Unable to set controls: Device or resource busy
+[3:50:58.763096006] [4900]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[3:50:58.779225197] [4900]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media3 and ISP device /dev/media0
+[3:50:58.779437956] [4900]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+[3:50:58.802632609] [4873]  INFO Camera camera.cpp:1003 Pipeline handler in use by another process
 Camera __init__ sequence did not complete.
-Traceback (most recent call last):
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 269, in __init__
-    self._open_camera()
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 478, in _open_camera
-    self.camera.acquire()
-RuntimeError: Failed to acquire camera: Device or resource busy
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/Dan/Projects/web_control.py", line 312, in <module>
-    output = init_camera()
-  File "/home/Dan/Projects/web_control.py", line 114, in init_camera
-    picam2 = Picamera2()
-  File "/home/Dan/.local/lib/python3.11/site-packages/picamera2/picamera2.py", line 281, in __init__
-    raise RuntimeError("Camera __init__ sequence did not complete.")
-RuntimeError: Camera __init__ sequence did not complete.
->>> 
+Camera initialization error: Camera __init__ sequence did not complete.
+Camera initialization failed - web control will run without camera
+ * Serving Flask app 'web_control'
+ * Debug mode: on
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.0.137:5000
+Press CTRL+C to quit
+ * Restarting with stat
+[3:51:24.095568514] [4906]  INFO Camera camera_manager.cpp:325 libcamera v0.3.2+99-1230f78d
+[3:51:24.362263932] [4928] ERROR V4L2 v4l2_device.cpp:351 'imx477 10-001a': Unable to set controls: Device or resource busy
+[3:51:24.508618827] [4928]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[3:51:24.526844459] [4928]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx477@1a to Unicam device /dev/media3 and ISP device /dev/media0
+[3:51:24.527026489] [4928]  INFO RPI pipeline_base.cpp:1120 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+[3:51:24.546552839] [4906]  INFO Camera camera.cpp:1003 Pipeline handler in use by another process
+Camera __init__ sequence did not complete.
+Camera initialization error: Camera __init__ sequence did not complete.
+Camera initialization failed - web control will run without camera
+ * Debugger is active!
+ * Debugger PIN: 551-669-090
+127.0.0.1 - - [24/Dec/2024 18:35:26] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [24/Dec/2024 18:35:50] "GET /overlay/normal HTTP/1.1" 200 -
+127.0.0.1 - - [24/Dec/2024 18:35:57] "GET /overlay/night_vision HTTP/1.1" 200 -
+127.0.0.1 - - [24/Dec/2024 18:
