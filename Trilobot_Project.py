@@ -331,59 +331,61 @@ def create_ps4_controller(stick_deadzone_percent=0.05):
 
 # Function to handle motor control based on controller input
 def handle_motor_control(controller, tank_steer):
-    """Handle motor control with control mode check"""
-    global control_mode
-    
-    with control_lock:
-        if control_mode != 'ps4':
-            return  # Skip if not in PS4 control mode
-            
+    """Handle motor control with web control check"""
+    try:
+        # Check if web control is active by trying to access the status endpoint
         try:
-            if tank_steer:
-                # Fix axis names to match exactly what the controller provides
-                left_y = -controller.read_axis("LY")    # Changed from "Left Y"
-                right_y = -controller.read_axis("RY")   # Changed from "Right Y"
-                
-                # Apply deadzone
-                left_y = 0 if abs(left_y) < STICK_DEADZONE else left_y
-                right_y = 0 if abs(right_y) < STICK_DEADZONE else right_y
-                
-                # Apply speed scaling
-                left_speed = left_y * MAX_SPEED
-                right_speed = right_y * MAX_SPEED
-                
-            else:
-                # Fix axis names for arcade steering too
-                y_axis = -controller.read_axis("LY")    # Changed from "Left Y"
-                x_axis = controller.read_axis("LX")     # Changed from "Left X"
-                
-                # Apply deadzone
-                y_axis = 0 if abs(y_axis) < STICK_DEADZONE else y_axis
-                x_axis = 0 if abs(x_axis) < STICK_DEADZONE else x_axis
-                
-                # Calculate motor speeds
-                left_speed = y_axis + x_axis
-                right_speed = y_axis - x_axis
-                
-                # Scale speeds
-                max_raw = max(abs(left_speed), abs(right_speed))
-                if max_raw > 1:
-                    left_speed /= max_raw
-                    right_speed /= max_raw
-                    
-                left_speed *= MAX_SPEED
-                right_speed *= MAX_SPEED
+            import requests
+            response = requests.get('http://localhost:5000/status')
+            if response.status_code == 200:
+                return  # Skip PS4 control if web control is active
+        except:
+            pass  # Continue with PS4 control if we can't reach web control
             
-            # Set motor speeds
-            if abs(left_speed) < STICK_DEADZONE and abs(right_speed) < STICK_DEADZONE:
-                tbot.disable_motors()
-            else:
-                tbot.set_left_speed(left_speed)
-                tbot.set_right_speed(right_speed)
+        if tank_steer:
+            left_y = -controller.read_axis("LY")
+            right_y = -controller.read_axis("RY")
+            
+            # Apply deadzone
+            left_y = 0 if abs(left_y) < STICK_DEADZONE else left_y
+            right_y = 0 if abs(right_y) < STICK_DEADZONE else right_y
+            
+            # Apply speed scaling
+            left_speed = left_y * MAX_SPEED
+            right_speed = right_y * MAX_SPEED
+            
+        else:
+            # Fix axis names for arcade steering too
+            y_axis = -controller.read_axis("LY")    # Changed from "Left Y"
+            x_axis = controller.read_axis("LX")     # Changed from "Left X"
+            
+            # Apply deadzone
+            y_axis = 0 if abs(y_axis) < STICK_DEADZONE else y_axis
+            x_axis = 0 if abs(x_axis) < STICK_DEADZONE else x_axis
+            
+            # Calculate motor speeds
+            left_speed = y_axis + x_axis
+            right_speed = y_axis - x_axis
+            
+            # Scale speeds
+            max_raw = max(abs(left_speed), abs(right_speed))
+            if max_raw > 1:
+                left_speed /= max_raw
+                right_speed /= max_raw
                 
-        except Exception as e:
-            print(f"Motor control error: {e}")
+            left_speed *= MAX_SPEED
+            right_speed *= MAX_SPEED
+        
+        # Set motor speeds
+        if abs(left_speed) < STICK_DEADZONE and abs(right_speed) < STICK_DEADZONE:
             tbot.disable_motors()
+        else:
+            tbot.set_left_speed(left_speed)
+            tbot.set_right_speed(right_speed)
+            
+    except Exception as e:
+        print(f"Motor control error: {e}")
+        tbot.disable_motors()
 
 def handle_controller_input(controller, tank_steer, button_states):
     global control_mode, knight_rider_active, party_mode_active
