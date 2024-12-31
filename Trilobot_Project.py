@@ -19,10 +19,10 @@ from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
 from evdev import InputDevice, ecodes, list_devices
-from web_control import main as web_control_main, get_trilobot
+from web_control import main as web_control_main
 
-# Initialize the Trilobot using the singleton
-tbot = get_trilobot()
+# Initialize Trilobot directly
+tbot = Trilobot()
 DEFAULT_NUM_CYCLES = 4
 DEFAULT_BLINK_RATE_SEC = 1
 
@@ -602,7 +602,6 @@ def move(direction, action):
 # Main function
 def main():
     try:
-        # Start web control interface
         web_control_main()
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
