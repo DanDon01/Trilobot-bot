@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify, Response
-from trilobot import Trilobot, NUM_BUTTONS
+from trilobot import Trilobot, NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
@@ -208,30 +208,31 @@ def set_overlay(mode):
         return jsonify({'status': 'error', 'message': str(e)})
 
 def knight_rider_effect():
-    """Run the Knight Rider light effect"""
+    """Knight Rider light effect"""
+    print("Starting Knight Rider effect")  # Debug print
     lights = [
         LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT, LIGHT_REAR_LEFT,
         LIGHT_REAR_RIGHT, LIGHT_MIDDLE_RIGHT, LIGHT_FRONT_RIGHT
     ]
-    current_led = 0
-    direction = 1
-    
     while not stop_light_shows.is_set() and knight_rider_active:
-        tbot.clear_underlighting(show=False)
-        tbot.set_underlight(lights[current_led], (255, 0, 0), show=True)
-        
-        current_led += direction
-        if current_led >= len(lights) - 1:
-            current_led = len(lights) - 2
-            direction = -1
-        elif current_led <= 0:
-            current_led = 1
-            direction = 1
-            
-        time.sleep(0.1)
+        # Forward
+        for i in range(len(lights)):
+            if stop_light_shows.is_set() or not knight_rider_active:
+                break
+            tbot.clear_underlighting(show=False)
+            tbot.set_underlight(lights[i], (255, 0, 0), show=True)
+            time.sleep(0.1)
+        # Backward
+        for i in range(len(lights)-2, 0, -1):
+            if stop_light_shows.is_set() or not knight_rider_active:
+                break
+            tbot.clear_underlighting(show=False)
+            tbot.set_underlight(lights[i], (255, 0, 0), show=True)
+            time.sleep(0.1)
 
 def party_mode_effect():
-    """Run the party mode light effect"""
+    """Party mode light effect"""
+    print("Starting Party mode effect")  # Debug print
     colors = [
         (255, 0, 0),    # Red
         (0, 255, 0),    # Green
@@ -240,12 +241,12 @@ def party_mode_effect():
         (255, 0, 255),  # Magenta
         (0, 255, 255),  # Cyan
     ]
-    current_color = 0
-    
     while not stop_light_shows.is_set() and party_mode_active:
-        tbot.fill_underlighting(colors[current_color])
-        current_color = (current_color + 1) % len(colors)
-        time.sleep(0.2)
+        for color in colors:
+            if stop_light_shows.is_set() or not party_mode_active:
+                break
+            tbot.fill_underlighting(color)
+            time.sleep(0.2)
 
 def start_light_show(effect_function):
     """Start a light show in a separate thread"""
@@ -262,33 +263,37 @@ def start_light_show(effect_function):
 
 @app.route('/button/<button_name>/<action>')
 def handle_button(button_name, action):
-    """Handle PS4-style button presses"""
+    """Handle button presses"""
     global button_leds_active, knight_rider_active, party_mode_active
+    
+    print(f"Button press received: {button_name} - {action}")  # Debug print
     
     try:
         is_active = (action == 'press')
         
         if button_name == 'triangle':
-            # Triangle - Toggle button LEDs
             if is_active:
+                print("Triangle pressed - toggling button LEDs")  # Debug print
                 button_leds_active = not button_leds_active
                 for led in range(NUM_BUTTONS):
                     tbot.set_button_led(led, button_leds_active)
                 
         elif button_name == 'circle':
-            # Circle - Knight Rider effect
             if is_active:
+                print("Circle pressed - toggling Knight Rider effect")  # Debug print
                 knight_rider_active = not knight_rider_active
-                party_mode_active = False
+                party_mode_active = False  # Stop party mode if running
                 if knight_rider_active:
-                    start_light_show(knight_rider_effect)
+                    stop_light_shows.clear()
+                    threading.Thread(target=knight_rider_effect, daemon=True).start()
                 else:
                     stop_light_shows.set()
                     tbot.clear_underlighting()
                 
         elif button_name == 'cross':
-            # Cross - Clear all effects
             if is_active:
+                print("Cross pressed - clearing all effects")  # Debug print
+                # Clear all effects
                 knight_rider_active = False
                 party_mode_active = False
                 stop_light_shows.set()
@@ -298,12 +303,13 @@ def handle_button(button_name, action):
                 button_leds_active = False
                 
         elif button_name == 'square':
-            # Square - Party mode
             if is_active:
+                print("Square pressed - toggling party mode")  # Debug print
                 party_mode_active = not party_mode_active
-                knight_rider_active = False
+                knight_rider_active = False  # Stop knight rider if running
                 if party_mode_active:
-                    start_light_show(party_mode_effect)
+                    stop_light_shows.clear()
+                    threading.Thread(target=party_mode_effect, daemon=True).start()
                 else:
                     stop_light_shows.set()
                     tbot.clear_underlighting()
@@ -320,7 +326,7 @@ def handle_button(button_name, action):
         })
         
     except Exception as e:
-        print(f"Button error: {e}")
+        print(f"Button error: {e}")  # Debug print
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/move/<direction>/<action>')
@@ -387,9 +393,8 @@ def stream():
 
 def cleanup():
     """Cleanup function to run when shutting down"""
+    print("Cleaning up...")  # Debug print
     stop_light_shows.set()
-    if light_show_thread and light_show_thread.is_alive():
-        light_show_thread.join()
     tbot.disable_motors()
     tbot.clear_underlighting()
     for led in range(NUM_BUTTONS):
@@ -397,17 +402,24 @@ def cleanup():
 
 if __name__ == '__main__':
     try:
-        # Initialize camera
+        # Initialize camera first
         if init_camera():
+            print("Camera initialized successfully")
             # Start camera server
             camera_server = StreamingServer(('', 8000), StreamingHandler)
             server_thread = threading.Thread(target=camera_server.serve_forever)
             server_thread.daemon = True
             server_thread.start()
-        
-        # Start Flask app
-        app.run(host='0.0.0.0', port=5000, debug=False)  # Set debug to False
+            print("Camera server started on port 8000")
+            
+            # Start Flask app
+            print("Starting web interface on port 5000...")
+            app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+        else:
+            print("Failed to initialize camera")
+            
     except Exception as e:
         print(f"Startup error: {e}")
     finally:
         cleanup()
+        print("Cleanup complete")
