@@ -56,147 +56,24 @@ class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
         self.frame = None
         self.condition = Condition()
-        self.rec_dot_visible = True  # For blinking REC dot
-        self.last_blink = time.time()
-        self.blink_interval = 1.0  # Blink every second
-        
+
     def write(self, buf):
-        try:
-            # Convert buffer to numpy array
-            nparr = np.frombuffer(buf, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            if frame is None:
-                return
-                
-            # Get frame dimensions
-            h, w = frame.shape[:2]
-            
-            # Create semi-transparent overlay for text background
-            overlay = frame.copy()
-            
-            # Add digital clock (top right)
-            current_time = datetime.now().strftime('%H:%M:%S')
-            clock_text_size = cv2.getTextSize(current_time, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)[0]
-            clock_x = w - clock_text_size[0] - 20
-            # Draw semi-transparent background for clock
-            cv2.rectangle(overlay, 
-                        (clock_x - 10, 10), 
-                        (w - 10, 50), 
-                        (0, 0, 0), 
-                        -1)
-            cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
-            # Draw clock text
-            cv2.putText(frame, current_time, 
-                       (clock_x, 40),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
-            
-            # Add REC indicator with blinking dot (top left)
-            current_time = time.time()
-            if current_time - self.last_blink >= self.blink_interval:
-                self.rec_dot_visible = not self.rec_dot_visible
-                self.last_blink = current_time
-            
-            if self.rec_dot_visible:
-                # Draw semi-transparent background for REC
-                cv2.rectangle(overlay, 
-                            (10, 10), 
-                            (120, 50), 
-                            (0, 0, 0), 
-                            -1)
-                cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
-                # Draw REC text and dot
-                cv2.circle(frame, (30, 30), 8, (0, 0, 255), -1)  # Red dot
-                cv2.putText(frame, "REC", 
-                           (50, 40),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            
-            # Add date (bottom left)
-            current_date = datetime.now().strftime('%Y-%m-%d')
-            # Draw semi-transparent background for date
-            cv2.rectangle(overlay, 
-                        (10, h - 50), 
-                        (200, h - 10), 
-                        (0, 0, 0), 
-                        -1)
-            cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
-            # Draw date text
-            cv2.putText(frame, current_date, 
-                       (20, h - 20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            
-            # Apply mode-specific overlays
-            if overlay_mode == 'night_vision':
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                frame = cv2.applyColorMap(frame, cv2.COLORMAP_BONE)
-                
-            elif overlay_mode == 'targeting':
-                # Add targeting overlay
-                center_x, center_y = w//2, h//2
-                cv2.line(frame, (center_x - 20, center_y), 
-                        (center_x + 20, center_y), (0, 0, 255), 2)
-                cv2.line(frame, (center_x, center_y - 20), 
-                        (center_x, center_y + 20), (0, 0, 255), 2)
-                cv2.circle(frame, (center_x, center_y), 50, (0, 0, 255), 1)
-            
-            # Encode frame
-            _, encoded_frame = cv2.imencode('.jpg', frame)
-            
-            with self.condition:
-                self.frame = encoded_frame.tobytes()
-                self.condition.notify_all()
-                
-        except Exception as e:
-            print(f"Frame processing error: {e}")
-
-class StreamingHandler(server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/stream.mjpg':
-            self.send_response(200)
-            self.send_header('Age', 0)
-            self.send_header('Cache-Control', 'no-cache, private')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
-            self.end_headers()
-            try:
-                while True:
-                    with output.condition:
-                        output.condition.wait()
-                        frame = output.frame
-                    self.wfile.write(b'--FRAME\r\n')
-                    self.send_header('Content-Type', 'image/jpeg')
-                    self.send_header('Content-Length', len(frame))
-                    self.end_headers()
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
-            except Exception as e:
-                print(f"Streaming error: {e}")
-        else:
-            self.send_error(404)
-            self.end_headers()
-
-class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
 
 def init_camera():
     global camera, output
     try:
-        # Kill any existing camera processes
-        os.system('sudo fuser -k /dev/video0 2>/dev/null')
-        time.sleep(1)
-        
         camera = Picamera2()
-        # Improved camera configuration
         camera_config = camera.create_video_configuration(
-            main={"size": (1280, 720)},  # Higher resolution
+            main={"size": (1280, 720)},
             encode="main",
             buffer_count=4
         )
         camera.configure(camera_config)
         output = StreamingOutput()
-        # Increased bitrate for better quality
-        encoder = MJPEGEncoder(bitrate=8000000)  # 8Mbps
+        encoder = MJPEGEncoder(bitrate=8000000)
         camera.start_recording(encoder, FileOutput(output))
         print("Camera initialized successfully")
         return True
@@ -390,17 +267,11 @@ def stream():
     """Video streaming route"""
     def generate():
         while True:
-            try:
-                with output.condition:
-                    output.condition.wait()
-                    frame = output.frame
-                    
-                if frame is not None:
-                    yield (b'--FRAME\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except Exception as e:
-                print(f"Streaming error: {e}")
-                break
+            with output.condition:
+                output.condition.wait()
+                frame = output.frame
+            yield (b'--FRAME\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
     
     return Response(generate(),
                    mimetype='multipart/x-mixed-replace; boundary=FRAME')
@@ -419,21 +290,8 @@ def cleanup():
 def test():
     return "Web control server is running!"
 
-# Separate the camera server startup into its own function
-def start_camera_server():
-    try:
-        camera_server = StreamingServer(('', 8000), StreamingHandler)
-        server_thread = threading.Thread(target=camera_server.serve_forever)
-        server_thread.daemon = True
-        server_thread.start()
-        logger.info("Camera server started on port 8000")
-        return True
-    except Exception as e:
-        logger.error(f"Camera server error: {e}")
-        return False
-
 def main():
-    """Main function to start both servers"""
+    """Main function to start Flask server"""
     try:
         logger.info("Starting initialization...")
         
@@ -441,22 +299,16 @@ def main():
         if not init_camera():
             logger.error("Failed to initialize camera")
             return
-        
-        # Start camera streaming server
-        if not start_camera_server():
-            logger.error("Failed to start camera server")
-            return
             
         # Start Flask server
         logger.info("Starting web interface on port 5000...")
-        app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+        app.run(host='0.0.0.0', port=5000, threaded=True)
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
     finally:
         cleanup()
-        logger.info("Cleanup complete")
 
 if __name__ == '__main__':
     main()
