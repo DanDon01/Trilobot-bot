@@ -13,7 +13,7 @@ from threading import Condition
 from http import server
 from time import sleep
 import threading
-
+# TEST
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
