@@ -20,5 +20,5 @@ jobs:
         username: Dan                 # Your Pi's username
         key: ${{ secrets.PI_SSH_KEY }}  # Your GitHub Secret
         script: |
-          cd /path/to/your/project     # Adjust path to your repo on the Pi
+          cd /home/Dan/Projects     # Adjust path to your repo on the Pi
           git pull origin main         # Pull the latest changes
