@@ -13,12 +13,13 @@ from threading import Condition
 from http import server
 from time import sleep
 import threading
-# TEST
+
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
 from evdev import InputDevice, ecodes, list_devices
+from web_control import main as web_control_main
 
 # Initialize the Trilobot
 tbot = Trilobot()
@@ -600,118 +601,16 @@ def move(direction, action):
 
 # Main function
 def main():
-    global stream_process, knight_rider_active, party_mode_active
-    
-    # Initialize light effect variables
-    knight_rider_active = False
-    party_mode_active = False
-    knight_rider_led = 0
-    knight_rider_direction = 1
-    party_color_index = 0
-    last_knight_rider_update = time.time()
-    last_party_update = time.time()
-    
-    # Initialize button states
-    button_states = {
-        'square_pressed': False,
-        'last_square_time': 0,
-        'triangle_pressed': False,
-        'last_triangle_time': 0,
-        'circle_pressed': False,
-        'last_circle_time': 0,
-        'cross_pressed': False,
-        'last_cross_time': 0,
-        'button_leds_on': False
-    }
-    
-    # Make sure button LEDs start off
-    for led in range(NUM_BUTTONS):
-        tbot.set_button_led(led, False)
-    
-    # Clean up any existing camera processes first
-    cleanup_camera()
-    
-    # Initialize distance sensor variables
-    last_sensor_read = time.time()
-    
     try:
-        # Start the camera stream in a separate process
-        stream_process = Process(target=start_camera_stream)
-        stream_process.start()
-        time.sleep(3)
-        
-        startup_animation()
-        
-        # Initialize controller
-        controller = create_ps4_controller()
-        if controller is None:
-            raise Exception("Controller connection failed")
-        
-        print("\nController connected and ready!")
-        tank_steer = False
-        
-        # Main control loop
-        while True:
-            try:
-                current_time = time.time()
-                
-                # Update controller
-                controller.update(debug=False)
-                tank_steer, button_states = handle_controller_input(
-                    controller, tank_steer, button_states
-                )
-                handle_motor_control(controller, tank_steer)
-                
-                # Update light effects
-                if knight_rider_active and (current_time - last_knight_rider_update) >= KNIGHT_RIDER_INTERVAL:
-                    knight_rider_led, knight_rider_direction = update_knight_rider_lights(
-                        knight_rider_led, knight_rider_direction
-                    )
-                    last_knight_rider_update = current_time
-                
-                if party_mode_active and (current_time - last_party_update) >= PARTY_MODE_INTERVAL:
-                    party_color_index = update_party_lights(party_color_index)
-                    last_party_update = current_time
-                
-            except Exception as e:
-                print(f"\rController error: {str(e)}")
-                time.sleep(1)
-                controller = create_ps4_controller()
-                if controller is None:
-                    print("\rAttempting to reconnect...", end='')
-            
-            time.sleep(0.01)
-            
+        # Start web control interface
+        web_control_main()
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
     except Exception as e:
         print(f"\nProgram error: {str(e)}")
     finally:
-        if 'stream_process' in globals():
-            stream_process.terminate()
-            stream_process.join(timeout=1)
-            if stream_process.is_alive():
-                stream_process.kill()
-        cleanup_camera()
-        tbot.clear_underlighting()
-        tbot.disable_motors()
-        # Turn off all button LEDs when program ends
-        for led in range(NUM_BUTTONS):
-            tbot.set_button_led(led, False)
+        cleanup()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nProgram terminated by user")
-    finally:
-        # Ensure cleanup happens even if program crashes
-        if 'stream_process' in globals():
-            stream_process.terminate()
-            stream_process.join(timeout=1)
-            if stream_process.is_alive():
-                stream_process.kill()
-        cleanup_camera()
-        tbot.clear_underlighting()
-        tbot.disable_motors()
+    main()
 

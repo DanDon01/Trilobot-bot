@@ -410,33 +410,44 @@ def cleanup():
 def test():
     return "Web control server is running!"
 
-if __name__ == '__main__':
+# Separate the camera server startup into its own function
+def start_camera_server():
+    try:
+        camera_server = StreamingServer(('', 8000), StreamingHandler)
+        server_thread = threading.Thread(target=camera_server.serve_forever)
+        server_thread.daemon = True
+        server_thread.start()
+        logger.info("Camera server started on port 8000")
+        return True
+    except Exception as e:
+        logger.error(f"Camera server error: {e}")
+        return False
+
+def main():
+    """Main function to start both servers"""
     try:
         logger.info("Starting initialization...")
         
-        # Initialize camera first
-        if init_camera():
-            logger.info("Camera initialized successfully")
-            
-            # Start camera server
-            try:
-                camera_server = StreamingServer(('', 8000), StreamingHandler)
-                server_thread = threading.Thread(target=camera_server.serve_forever)
-                server_thread.daemon = True
-                server_thread.start()
-                logger.info("Camera server started on port 8000")
-            except Exception as e:
-                logger.error(f"Camera server error: {e}")
-            
-            # Start Flask app
-            logger.info("Starting web interface on port 5000...")
-            app.run(host='0.0.0.0', port=5000, threaded=True, debug=True)
-        else:
+        # Initialize camera
+        if not init_camera():
             logger.error("Failed to initialize camera")
+            return
+        
+        # Start camera streaming server
+        if not start_camera_server():
+            logger.error("Failed to start camera server")
+            return
             
+        # Start Flask server
+        logger.info("Starting web interface on port 5000...")
+        app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+        
     except Exception as e:
         logger.error(f"Startup error: {e}")
-        raise  # This will show the full error traceback
+        raise
     finally:
         cleanup()
         logger.info("Cleanup complete")
+
+if __name__ == '__main__':
+    main()
