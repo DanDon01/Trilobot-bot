@@ -20,7 +20,15 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-tbot = Trilobot()
+
+# Add singleton pattern for Trilobot
+_trilobot_instance = None
+
+def get_trilobot():
+    global _trilobot_instance
+    if _trilobot_instance is None:
+        _trilobot_instance = Trilobot()
+    return _trilobot_instance
 
 # Global variables
 SPEED = 1.0

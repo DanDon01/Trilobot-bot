@@ -19,10 +19,10 @@ from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
 from evdev import InputDevice, ecodes, list_devices
-from web_control import main as web_control_main
+from web_control import main as web_control_main, get_trilobot
 
-# Initialize the Trilobot
-tbot = Trilobot()
+# Initialize the Trilobot using the singleton
+tbot = get_trilobot()
 DEFAULT_NUM_CYCLES = 4
 DEFAULT_BLINK_RATE_SEC = 1
 
