@@ -13,6 +13,11 @@ import os
 from threading import Condition
 import socketserver
 from http import server
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 tbot = Trilobot()
@@ -400,26 +405,38 @@ def cleanup():
     for led in range(NUM_BUTTONS):
         tbot.set_button_led(led, False)
 
+# Add a basic test route
+@app.route('/test')
+def test():
+    return "Web control server is running!"
+
 if __name__ == '__main__':
     try:
+        logger.info("Starting initialization...")
+        
         # Initialize camera first
         if init_camera():
-            print("Camera initialized successfully")
+            logger.info("Camera initialized successfully")
+            
             # Start camera server
-            camera_server = StreamingServer(('', 8000), StreamingHandler)
-            server_thread = threading.Thread(target=camera_server.serve_forever)
-            server_thread.daemon = True
-            server_thread.start()
-            print("Camera server started on port 8000")
+            try:
+                camera_server = StreamingServer(('', 8000), StreamingHandler)
+                server_thread = threading.Thread(target=camera_server.serve_forever)
+                server_thread.daemon = True
+                server_thread.start()
+                logger.info("Camera server started on port 8000")
+            except Exception as e:
+                logger.error(f"Camera server error: {e}")
             
             # Start Flask app
-            print("Starting web interface on port 5000...")
-            app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+            logger.info("Starting web interface on port 5000...")
+            app.run(host='0.0.0.0', port=5000, threaded=True, debug=True)
         else:
-            print("Failed to initialize camera")
+            logger.error("Failed to initialize camera")
             
     except Exception as e:
-        print(f"Startup error: {e}")
+        logger.error(f"Startup error: {e}")
+        raise  # This will show the full error traceback
     finally:
         cleanup()
-        print("Cleanup complete")
+        logger.info("Cleanup complete")
