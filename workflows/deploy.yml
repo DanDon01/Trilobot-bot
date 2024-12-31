@@ -1,0 +1,24 @@
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches:
+      - main  # Replace with your branch name if necessary
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Deploy to Raspberry Pi
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: 192.168.0.137           # Your Pi's IP
+        username: Dan                 # Your Pi's username
+        key: ${{ secrets.PI_SSH_KEY }}  # Your GitHub Secret
+        script: |
+          cd /path/to/your/project     # Adjust path to your repo on the Pi
+          git pull origin main         # Pull the latest changes
