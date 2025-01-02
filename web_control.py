@@ -19,24 +19,20 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Clean up any existing PWM processes
-os.system('sudo pkill -f python3')
-time.sleep(1)  # Wait for cleanup
-
 # Initialize Flask
 app = Flask(__name__)
 
-# Initialize Trilobot with cleanup
-try:
-    tbot = Trilobot()
-except Exception as e:
-    logger.error(f"Failed to initialize Trilobot: {e}")
-    # Try cleanup and reinitialize
-    os.system('sudo killall pigpiod')
-    time.sleep(1)
-    os.system('sudo pigpiod')
-    time.sleep(1)
-    tbot = Trilobot()
+# Initialize Trilobot ONCE
+tbot = None
+
+def get_trilobot():
+    global tbot
+    if tbot is None:
+        tbot = Trilobot()
+    return tbot
+
+# Use get_trilobot() wherever you need the Trilobot instance
+tbot = get_trilobot()
 
 # Global variables for movement
 SPEED = 1.0

@@ -19,10 +19,25 @@ from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
 from evdev import InputDevice, ecodes, list_devices
-from web_control import main as web_control_main, tbot
+from web_control import get_trilobot, main as web_control_main
+
+# Use the same Trilobot instance
+tbot = get_trilobot()
+
+def main():
+    try:
+        web_control_main()
+    except KeyboardInterrupt:
+        print("\nProgram terminated by user")
+    except Exception as e:
+        print(f"\nProgram error: {str(e)}")
+    finally:
+        cleanup()
+
+if __name__ == "__main__":
+    main()
 
 # Initialize Trilobot directly
-# tbot = Trilobot()
 DEFAULT_NUM_CYCLES = 4
 DEFAULT_BLINK_RATE_SEC = 1
 
