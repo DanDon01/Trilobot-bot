@@ -90,11 +90,6 @@ timeout = 50  # milliseconds
 samples = 3  # number of readings for averaging
 offset = 190000  # suitable for Raspberry Pi 4, adjust if necessary
 
-# Define colors for underlighting
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-
 # Add these constants near the top with your other constants
 KNIGHT_RIDER_INTERVAL = 0.1
 KNIGHT_RIDER_COLOR = RED
