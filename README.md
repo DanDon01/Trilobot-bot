@@ -1,49 +1,125 @@
-# Trilobot Bot
+# Trilobot Robot
 
-A Python-based project for controlling Pimoroni's Trilobot robot with a PlayStation 4 controller and a Raspberry Pi. Includes features like Knight Rider-style LED animations, camera streaming, and distance-based lighting effects.
+A Python-based project for controlling Pimoroni's Trilobot robot with a PlayStation 4 controller, web interface, voice commands, and computer vision capabilities.
 
 ## Features
-- **PS4 Controller Support**: Control Trilobot using a wireless PS4 controller with tank steering or arcade steering modes.
-- **Knight Rider Effect**: LED animations reminiscent of KITT from Knight Rider.
-- **Party Mode**: Fun light effects with vibrant colors.
-- **Distance Sensor Integration**: LED lights react to proximity of obstacles.
-- **Camera Streaming**: Stream video from the Pi camera module to a web browser.
+
+- **Unified Control System**: Seamlessly switch between PS4 controller, web interface, and voice commands
+- **PS4 Controller Support**: Control Trilobot using a wireless PS4 controller with tank steering
+- **Web Interface**: Browser-based control panel with live camera feed and status indicators
+- **Voice Control**: Command your Trilobot using natural language with ElevenLabs voice synthesis
+- **Computer Vision**: Object detection and tracking capabilities
+- **LED Effects**: Knight Rider animation, party mode, and context-aware lighting
+- **Distance Sensing**: Automatic obstacle detection and avoidance
+- **Modular Architecture**: Easy to extend with new features
 
 ## Requirements
-- Raspberry Pi 4 or newer
-- Pimoroni Trilobot
-- Raspberry Pi Camera Module (or compatible)
+
+### Hardware
+- Raspberry Pi 4 (2GB RAM or higher recommended)
+- Pimoroni Trilobot robot platform
+- Raspberry Pi Camera Module
+- PS4 Wireless Controller (optional)
+- USB Microphone (for voice control, optional)
+- Speaker (for voice responses, optional)
+
+### Software
 - Python 3.8 or newer
-- PS4 Wireless Controller
-- [Picamera2](https://github.com/raspberrypi/picamera2) library for video streaming
-- Network connection for accessing the camera stream
+- Required Python packages listed in `requirements.txt`
+- ElevenLabs API key (for voice synthesis, optional)
+- TensorFlow Lite models (for computer vision, optional)
 
 ## Installation
+
 1. Clone this repository to your Raspberry Pi:
    ```bash
-   git clone https://github.com/DanDon01/Trilobot-bot.git
-   cd Trilobot-bot
+   git clone https://github.com/yourusername/trilobot-project.git
+   cd trilobot-project
+   ```
 
-2. Install dependencies:
+2. Set up a Python virtual environment:
+   ```bash
+   # Install venv if not already installed
+   sudo apt-get update
+   sudo apt-get install -y python3-venv
 
-   sudo apt update && sudo apt install -y python3 python3-pip
-   pip3 install -r requirements.txt
+   # Create a virtual environment
+   python3 -m venv venv
 
-3. Run the main script:
+   # Activate the virtual environment
+   source venv/bin/activate
+   ```
 
-   python3 main.py
+3. Install dependencies:
+   ```bash
+   # Make sure you're in the virtual environment (should see (venv) in prompt)
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+4. Configure settings (optional):
+   Edit `config.json` to customize settings or use the defaults.
+   
+   For ElevenLabs voice synthesis, set your API key:
+   ```bash
+   export ELEVENLABS_API_KEY=your_api_key_here
+   ```
+
+5. Run the application:
+   ```bash
+   python main.py
+   ```
 
 ## Usage
 
-1. Pair your PS4 controller with the Raspberry Pi via Bluetooth.
+### Web Interface
+Access the web control interface at `http://<raspberry-pi-ip>:5000`
 
-2. Start the script:
-   python3 main.py
+### PS4 Controller
+- **Left/Right Sticks**: Tank-style movement controls
+- **Triangle**: Toggle button LEDs
+- **Circle**: Toggle Knight Rider effect
+- **Square**: Toggle party mode
+- **X**: Emergency stop
+- **Share**: Take photo
+- **PS Button**: Full emergency stop
 
-3. Access the camera stream in your browser:
-   http://<your-pi-ip>:8000
+### Voice Commands
+Say "Hey Trilobot" followed by:
+- "Move forward/backward"
+- "Turn left/right"
+- "Stop"
+- "Party mode"
+- "Knight Rider"
+- "Take photo"
+- "Status report"
 
-## Known Issues
-Ensure the camera is properly connected before starting the script.
-PS4 controller pairing can sometimes require multiple attempts.
+## Project Structure
+
+- `main.py` - Main application entry point
+- `config.py` - Configuration management
+- `debugging.py` - Logging and debugging utilities
+- `control_manager.py` - Unified control system
+- `web_control.py` - Flask web server
+- `camera_processor.py` - Camera and computer vision
+- `voice_controller.py` - Speech recognition and synthesis
+- `ps4_controller.py` - PS4 controller input handler
+- `templates/` - Web interface HTML templates
+- `static/` - Web interface static files
+- `models/` - TensorFlow Lite models
+- `responses/` - Cached voice responses
+
+## Contributing
+
+Contributions welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Pimoroni](https://shop.pimoroni.com/) for the Trilobot platform
+- [ElevenLabs](https://elevenlabs.io/) for voice synthesis
+- [TensorFlow Lite](https://www.tensorflow.org/lite) for object detection
 
