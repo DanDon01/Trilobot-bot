@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+You are on a Windows machine in VSC. Not a Raspberry Pi, do not try to run Pi commands.
+

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Test script to check hardware components individually
+Trilobot Hardware Test Script
+
+This script attempts to locate and test the Trilobot hardware.
+It will display detailed information to help troubleshoot hardware issues.
 """
 
 import sys
@@ -8,6 +11,7 @@ import time
 import subprocess
 import os
 import logging
+import importlib
 
 # Configure basic logging
 logging.basicConfig(
@@ -15,6 +19,35 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('test_hardware')
+
+# Define colored output for better readability
+GREEN = '\033[92m'
+YELLOW = '\033[93m'
+RED = '\033[91m'
+BLUE = '\033[94m'
+RESET = '\033[0m'
+
+def print_section(title):
+    """Print a section header"""
+    print(f"\n{BLUE}{'=' * 40}{RESET}")
+    print(f"{BLUE}{title.center(40)}{RESET}")
+    print(f"{BLUE}{'=' * 40}{RESET}\n")
+
+def print_success(message):
+    """Print a success message"""
+    print(f"{GREEN}✓ {message}{RESET}")
+
+def print_warning(message):
+    """Print a warning message"""
+    print(f"{YELLOW}! {message}{RESET}")
+
+def print_error(message):
+    """Print an error message"""
+    print(f"{RED}✗ {message}{RESET}")
+
+def print_info(message):
+    """Print an info message"""
+    print(f"  {message}")
 
 def test_camera():
     """Test if the camera is working properly"""
@@ -173,31 +206,128 @@ def test_flask():
         print(f"✗ Flask test error: {e}")
         return False
 
-def test_trilobot():
-    """Test if Trilobot library is available"""
-    print("\n=== TESTING TRILOBOT LIBRARY ===")
+def check_python_environment():
+    """Check Python environment information"""
+    print_section("PYTHON ENVIRONMENT")
+    print_info(f"Python version: {sys.version}")
+    print_info(f"Python executable: {sys.executable}")
+    print_info(f"Platform: {sys.platform}")
+    
+    # Check sys.path
+    print_info("\nPython module search paths:")
+    for i, path in enumerate(sys.path):
+        if os.path.exists(path):
+            print_info(f"  {i+1}. {path} [EXISTS]")
+        else:
+            print_info(f"  {i+1}. {path} [MISSING]")
+
+def check_trilobot_library():
+    """Check for Trilobot library"""
+    print_section("TRILOBOT LIBRARY CHECK")
+    
+    # Try different methods to find the library
     try:
-        print("Checking for Trilobot module...")
         import trilobot
-        print(f"✓ Trilobot module found")
+        print_success(f"Trilobot library found at: {trilobot.__file__}")
         
-        # Try to initialize Trilobot
+        # Check version if available
+        if hasattr(trilobot, "__version__"):
+            print_info(f"Trilobot library version: {trilobot.__version__}")
+    except ImportError as e:
+        print_error(f"Failed to import trilobot: {e}")
+        
+        # Check if the library is installed using pip
+        print_info("\nChecking installed packages...")
         try:
-            from trilobot import Trilobot
-            bot = Trilobot()
-            print("✓ Trilobot initialized successfully")
-            return True
+            result = subprocess.run([sys.executable, '-m', 'pip', 'list'], 
+                                   capture_output=True, text=True)
+            if 'trilobot' in result.stdout:
+                print_warning("Trilobot appears in pip list but cannot be imported")
+                # Extract version from pip list
+                for line in result.stdout.split('\n'):
+                    if 'trilobot' in line:
+                        print_info(f"  {line.strip()}")
+            else:
+                print_error("Trilobot not found in pip list")
+                print_info("  Try installing with: sudo pip3 install trilobot")
         except Exception as e:
-            print(f"✗ Trilobot initialization error: {e}")
-            print("  This might be expected if running on development machine")
+            print_error(f"Error checking pip list: {e}")
+        
+        # Try to find the library in common locations
+        potential_paths = [
+            os.path.expanduser('~/Pimoroni/trilobot/library'),
+            '/usr/local/lib/python3.9/dist-packages',
+            '/usr/local/lib/python3.7/dist-packages',
+            '/usr/local/lib/python3/dist-packages',
+            '/usr/lib/python3/dist-packages',
+        ]
+        
+        print_info("\nChecking potential library locations...")
+        for path in potential_paths:
+            trilobot_path = os.path.join(path, "trilobot.py")
+            if os.path.exists(trilobot_path):
+                print_warning(f"Found trilobot.py at {trilobot_path}")
+                print_info("  But it cannot be imported with the current Python environment")
+        
+        return False
+    
+    return True
+
+def test_trilobot_hardware():
+    """Test Trilobot hardware functionality"""
+    print_section("TRILOBOT HARDWARE TEST")
+    
+    try:
+        from trilobot import Trilobot
+        print_success("Trilobot class imported successfully")
+        
+        # Try to initialize the hardware
+        try:
+            print_info("Initializing Trilobot hardware...")
+            bot = Trilobot()
+            print_success("Hardware initialized successfully")
+            
+            # Basic hardware tests
+            print_info("\nRunning basic hardware tests...")
+            
+            # Test motors
+            print_info("Testing motors (2 seconds each)...")
+            
+            # Forward
+            print_info("  Forward...")
+            bot.set_left_speed(0.5)
+            bot.set_right_speed(0.5)
+            time.sleep(2)
+            
+            # Stop
+            bot.disable_motors()
+            print_info("  Motors stopped")
+            time.sleep(1)
+            
+            # Test lights
+            print_info("Testing underlighting...")
+            bot.fill_underlighting(255, 0, 0)  # Red
+            time.sleep(1)
+            bot.fill_underlighting(0, 255, 0)  # Green
+            time.sleep(1)
+            bot.fill_underlighting(0, 0, 255)  # Blue
+            time.sleep(1)
+            bot.clear_underlighting()
+            print_info("  Underlighting test complete")
+            
+            print_success("All hardware tests completed successfully")
+            
+        except Exception as e:
+            print_error(f"Error initializing or testing hardware: {e}")
+            print_warning("This may indicate a hardware connection issue or permission problem")
+            print_info("  Try running with sudo if this is a permission issue")
             return False
-    except ImportError:
-        print("✗ Trilobot module not found")
-        print("  Follow installation instructions at: https://github.com/pimoroni/trilobot-python")
-        return False
+        
     except Exception as e:
-        print(f"✗ Trilobot test error: {e}")
+        print_error(f"Error importing Trilobot class: {e}")
         return False
+    
+    return True
 
 def network_check():
     """Check network connectivity"""
@@ -235,48 +365,33 @@ def network_check():
         return False
 
 def main():
-    """Run all hardware tests"""
-    print("=== TRILOBOT HARDWARE TEST ===")
-    print(f"Python version: {sys.version}")
-    print(f"System platform: {sys.platform}")
-    print(f"Current directory: {os.getcwd()}")
-    print("Running tests...\n")
+    """Main function"""
+    print_section("TRILOBOT HARDWARE DIAGNOSTIC")
+    print_info("This script will check for the Trilobot library and test the hardware")
+    print_info("Running tests...")
     
-    # Run all tests
-    camera_ok = test_camera()
-    bluetooth_ok = test_bluetooth()
-    controller_ok = test_controller()
-    flask_ok = test_flask()
-    trilobot_ok = test_trilobot()
-    network_ok = network_check()
+    # Run checks
+    check_python_environment()
+    lib_available = check_trilobot_library()
     
-    # Print summary
-    print("\n=== TEST SUMMARY ===")
-    print(f"Camera:     {'✓ OK' if camera_ok else '✗ FAILED'}")
-    print(f"Bluetooth:  {'✓ OK' if bluetooth_ok else '✗ FAILED'}")
-    print(f"Controller: {'✓ OK' if controller_ok else '✗ FAILED'}")
-    print(f"Web Server: {'✓ OK' if flask_ok else '✗ FAILED'}")
-    print(f"Trilobot:   {'✓ OK' if trilobot_ok else '✗ FAILED'}")
-    print(f"Network:    {'✓ OK' if network_ok else '✗ FAILED'}")
-    
-    # Final assessment
-    total_tests = 6
-    passed_tests = sum([camera_ok, bluetooth_ok, controller_ok, flask_ok, trilobot_ok, network_ok])
-    
-    print(f"\nTests passed: {passed_tests}/{total_tests}")
-    
-    essential_tests = [flask_ok, trilobot_ok]
-    if all(essential_tests) and (camera_ok or controller_ok or network_ok):
-        print("\n✓ Basic functionality should work!")
-        if not camera_ok:
-            print("  ⚠️ Camera not working - web interface will use placeholder images")
-        if not controller_ok:
-            print("  ⚠️ PS4 controller not working - only web controls will be available")
-        return True
+    if lib_available:
+        hardware_ok = test_trilobot_hardware()
+        
+        if hardware_ok:
+            print_section("SUMMARY")
+            print_success("Trilobot library and hardware are working correctly")
+            print_info("You should be able to run the main application now")
+        else:
+            print_section("SUMMARY")
+            print_warning("Trilobot library is installed but hardware test failed")
+            print_info("Check connections and permissions before running the main application")
     else:
-        print("\n✗ Some essential components are not working")
-        print("  Please fix the failed tests before continuing")
-        return False
+        print_section("SUMMARY")
+        print_error("Trilobot library could not be imported")
+        print_info("Install the library before running the main application:")
+        print_info("  sudo pip3 install trilobot")
+        print_info("  or")
+        print_info("  curl -sSL https://get.pimoroni.com/trilobot | bash")
 
 if __name__ == "__main__":
     main() 
