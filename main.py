@@ -69,21 +69,60 @@ def main():
         log_info("Control manager started")
         
         # Start camera processor (now without OpenCV dependencies)
+        log_info("Starting camera processor...")
+        
+        # Report Python and system information
+        log_info(f"Python version: {sys.version}")
+        log_info(f"System platform: {sys.platform}")
+        
+        # Check for picamera2 module
+        picamera2_found = False
+        try:
+            from picamera2 import Picamera2
+            picamera2_found = True
+            log_info("PiCamera2 module is available")
+        except ImportError as e:
+            log_warning(f"PiCamera2 module not found: {e}")
+            log_warning("Camera functionality may be limited")
+        
+        # Check camera status before starting
+        camera_status = camera_processor.get_camera_status()
+        log_info(f"Camera hardware available: {camera_status['available']}")
+        if not camera_status['available']:
+            log_warning(f"Camera hardware issue: {camera_status['error']}")
+        
+        # Try to start the camera
         if camera_processor.start():
-            log_info("Camera processor started (without OpenCV)")
+            log_info("Camera processor started successfully")
             # Update camera mode in state tracker
             state_tracker.update_state('camera_mode', 'basic')
         else:
-            log_warning("Failed to start camera processor")
+            log_warning(f"Failed to start camera processor: {camera_status['error']}")
         
-        # Start PS4 controller if available
+        # Check for PS4 controller
+        print("\n====== PS4 CONTROLLER SETUP ======")
+        print("Checking for PS4 controller...")
+        
+        # First check if controller is already connected
         if ps4_controller.find_controller():
+            print("✓ PS4 controller already connected!")
             if ps4_controller.start():
                 log_info("PS4 controller started")
             else:
-                log_warning("Failed to start PS4 controller")
+                log_warning("Failed to start PS4 controller - continuing with web controls only")
         else:
-            log_warning("PS4 controller not found")
+            # Not found, attempt to connect
+            print("No controller found. Starting connection process...")
+            # start() will handle the interactive connection process
+            if ps4_controller.start():
+                if ps4_controller.web_only_mode:
+                    log_info("Running in web-only mode (no PS4 controller)")
+                else:
+                    log_info("PS4 controller connected and started")
+            else:
+                # User chose to exit the application
+                log_error("User chose to exit without PS4 controller")
+                sys.exit(0)
         
         # Start voice controller if enabled
         if config.get("voice", "enabled"):

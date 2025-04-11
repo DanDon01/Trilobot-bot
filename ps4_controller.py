@@ -8,6 +8,8 @@ It maps controller buttons and joysticks to robot actions.
 import threading
 import time
 import logging
+import subprocess
+import os
 from math import copysign
 
 # Import local modules
@@ -33,6 +35,10 @@ class PS4Controller:
         self.running = False
         self.input_thread = None
         self.stop_input = threading.Event()
+        self.connection_attempts = 0
+        self.max_connection_attempts = 3
+        self.bluetooth_connected = False
+        self.web_only_mode = False
         
         # Controller state
         self.buttons = {}
@@ -80,6 +86,77 @@ class PS4Controller:
         
         log_info("PS4 Controller initialized")
     
+    def check_bluetooth_status(self):
+        """Check if Bluetooth is enabled and working"""
+        try:
+            # Check if bluetoothctl is available and bluetooth service is running
+            result = subprocess.run(['systemctl', 'is-active', 'bluetooth'], 
+                                    capture_output=True, text=True, check=False)
+            
+            if result.stdout.strip() == 'active':
+                log_info("Bluetooth service is active")
+                
+                # Check for available Bluetooth devices
+                bt_result = subprocess.run(['bluetoothctl', 'devices'], 
+                                          capture_output=True, text=True, check=False)
+                
+                if "controller" in bt_result.stderr.lower():
+                    log_warning("Bluetooth controller not available")
+                    return False
+                    
+                # Look for PlayStation or DualShock in device list
+                ps_devices = [line for line in bt_result.stdout.split('\n') 
+                             if 'dual' in line.lower() or 'playstation' in line.lower() or 'ps4' in line.lower()]
+                
+                if ps_devices:
+                    log_info(f"Found PS4 controller devices in Bluetooth: {ps_devices}")
+                    return True
+                else:
+                    log_warning("No PS4 controller found in paired Bluetooth devices")
+                    # Try to scan for new devices
+                    log_info("Scanning for Bluetooth devices...")
+                    scan_result = subprocess.run(['bluetoothctl', 'scan', 'on'], 
+                                                capture_output=True, text=True, timeout=5, check=False)
+                    return False
+            else:
+                log_warning("Bluetooth service is not active")
+                return False
+                
+        except Exception as e:
+            log_error(f"Error checking Bluetooth status: {e}")
+            return False
+    
+    def attempt_bluetooth_connection(self):
+        """Attempt to connect to the PS4 controller via Bluetooth"""
+        if self.connection_attempts >= self.max_connection_attempts:
+            log_warning(f"Maximum connection attempts ({self.max_connection_attempts}) reached")
+            return False
+            
+        self.connection_attempts += 1
+        
+        try:
+            log_info(f"Bluetooth connection attempt {self.connection_attempts}/{self.max_connection_attempts}")
+            
+            # Check if Bluetooth is enabled
+            if not self.check_bluetooth_status():
+                log_warning("Bluetooth not properly configured")
+                return False
+                
+            # Look for PS4 controller using evdev
+            found = self.find_controller()
+            if found:
+                self.bluetooth_connected = True
+                self.connection_attempts = 0  # Reset counter on successful connection
+                log_info("Successfully connected to PS4 controller via Bluetooth")
+                return True
+                
+            log_warning("Could not connect to PS4 controller via Bluetooth")
+            return False
+            
+        except Exception as e:
+            log_error(f"Error attempting Bluetooth connection: {e}")
+            return False
+    
     def find_controller(self):
         """Find PS4 controller device"""
         if not EVDEV_AVAILABLE:
@@ -88,21 +165,137 @@ class PS4Controller:
             
         try:
             # Search for PS4 controller in available devices
+            devices_found = []
+            
             for device_path in list_devices():
                 try:
                     device = InputDevice(device_path)
-                    # Look for "Sony" in the device name (PS4 controllers)
-                    if "sony" in device.name.lower() or "playstation" in device.name.lower():
+                    devices_found.append(f"{device.name} at {device_path}")
+                    
+                    # Look for PS4 controller keywords in the device name
+                    if ("sony" in device.name.lower() or 
+                        "playstation" in device.name.lower() or 
+                        "wireless controller" in device.name.lower() or
+                        "dualshock" in device.name.lower()):
                         self.device = device
                         log_info(f"Found PS4 controller: {device.name} at {device_path}")
                         return True
-                except:
+                except Exception as e:
+                    log_warning(f"Error checking device: {e}")
                     continue
             
-            log_warning("No PS4 controller found")
+            # If no devices found, log the available devices
+            if devices_found:
+                log_warning(f"No PS4 controller found. Available devices: {devices_found}")
+            else:
+                log_warning("No input devices found")
+                
             return False
         except Exception as e:
             log_error(f"Error finding PS4 controller: {e}")
+            return False
+    
+    def display_connection_instructions(self):
+        """Display instructions for connecting a PS4 controller"""
+        print("\n====== PS4 CONTROLLER CONNECTION ======")
+        print("No PS4 controller detected. Follow these steps to connect:")
+        print("")
+        print("1. Put your PS4 controller in pairing mode:")
+        print("   - Press and hold the SHARE button")
+        print("   - While holding SHARE, press and hold the PS button")
+        print("   - The light bar will start flashing rapidly when in pairing mode")
+        print("")
+        print("2. On the Raspberry Pi, run these commands in a separate terminal if needed:")
+        print("   $ bluetoothctl")
+        print("   [bluetooth]# agent on")
+        print("   [bluetooth]# scan on")
+        print("   (Wait for 'Wireless Controller' to appear)")
+        print("   [bluetooth]# pair XX:XX:XX:XX:XX:XX (replace with your controller's address)")
+        print("   [bluetooth]# trust XX:XX:XX:XX:XX:XX")
+        print("   [bluetooth]# connect XX:XX:XX:XX:XX:XX")
+        print("")
+        print("Waiting for controller connection... (Press Ctrl+C to continue without controller)")
+        print("=======================================\n")
+    
+    def prompt_web_only_mode(self):
+        """
+        Prompts about continuing in web-only mode
+        Returns True if the application should continue, False if it should exit
+        """
+        log_warning("PS4 controller not found after multiple attempts")
+        
+        print("\n====== CONTROLLER NOT DETECTED ======")
+        print("No PS4 controller found. You have these options:")
+        print("1. Continue with Web Controls only")
+        print("2. Exit the program and try again")
+        print("")
+        
+        try:
+            user_choice = input("Enter your choice (1 or 2): ").strip()
+            if user_choice == "2":
+                print("Exiting program. Restart when you're ready to try again.")
+                time.sleep(1)
+                return False
+            else:
+                print("Continuing in web-only mode...")
+                self.web_only_mode = True
+                state_tracker.update_state('control_mode', 'web_only')
+                return True
+        except KeyboardInterrupt:
+            # If user presses Ctrl+C, default to web-only mode
+            print("\nContinuing in web-only mode...")
+            self.web_only_mode = True
+            state_tracker.update_state('control_mode', 'web_only')
+            return True
+    
+    def wait_for_controller(self, timeout=60):
+        """
+        Wait for a controller to be connected, with a timeout
+        
+        Args:
+            timeout (int): Maximum time to wait in seconds
+            
+        Returns:
+            bool: True if a controller was found, False otherwise
+        """
+        self.display_connection_instructions()
+        
+        start_time = time.time()
+        check_interval = 2  # Check every 2 seconds
+        
+        try:
+            while (time.time() - start_time) < timeout:
+                if self.find_controller():
+                    print("\n✓ PS4 controller connected successfully!")
+                    return True
+                
+                # Check if Bluetooth has new devices
+                try:
+                    result = subprocess.run(['bluetoothctl', 'devices'], 
+                                           capture_output=True, text=True, check=False)
+                    ps_devices = [line for line in result.stdout.split('\n') 
+                                 if 'dual' in line.lower() or 'playstation' in line.lower() 
+                                 or 'wireless controller' in line.lower()]
+                    
+                    if ps_devices and not self.bluetooth_connected:
+                        print(f"\nDetected potential PS4 controllers: {ps_devices}")
+                        print("Try connecting in bluetoothctl if not already connected")
+                        
+                except Exception:
+                    pass
+                
+                # Display countdown and remaining time
+                elapsed = time.time() - start_time
+                remaining = timeout - elapsed
+                print(f"\rWaiting for controller... {int(remaining)}s remaining  ", end="")
+                
+                time.sleep(check_interval)
+            
+            print("\n\nController connection timed out.")
+            return False
+            
+        except KeyboardInterrupt:
+            print("\n\nController connection cancelled by user.")
             return False
     
     def start(self):
@@ -113,12 +306,30 @@ class PS4Controller:
             
         if not EVDEV_AVAILABLE:
             log_error("Evdev module not available. Cannot start PS4 controller.")
-            return False
+            # Continue in web-only mode
+            return self.prompt_web_only_mode()
             
         # Find controller if not already connected
-        if not self.device and not self.find_controller():
-            log_error("No PS4 controller found")
-            return False
+        if not self.device:
+            # First try to find an already connected controller
+            if not self.find_controller():
+                # If not found, attempt to establish Bluetooth connection
+                log_info("No PS4 controller found. Attempting Bluetooth connection...")
+                
+                # Try a quick connection first
+                for _ in range(2):
+                    if self.attempt_bluetooth_connection():
+                        break
+                    time.sleep(1)
+                
+                # If still not connected, wait for user to connect
+                if not self.device:
+                    if self.wait_for_controller():
+                        log_info("PS4 controller connected via Bluetooth")
+                        self.bluetooth_connected = True
+                    else:
+                        # No controller after waiting, prompt about web-only mode
+                        return self.prompt_web_only_mode()
         
         try:
             # Start input thread
@@ -132,7 +343,8 @@ class PS4Controller:
             return True
         except Exception as e:
             log_error(f"Error starting PS4 controller input: {e}")
-            return False
+            # Continue in web-only mode
+            return self.prompt_web_only_mode()
     
     def stop(self):
         """Stop PS4 controller input processing"""
@@ -174,12 +386,23 @@ class PS4Controller:
                 self._process_movement()
         except Exception as e:
             log_error(f"Error in PS4 controller input loop: {e}")
-            # Try to restart if the controller disconnected
+            # Try to reconnect if the controller disconnected
             time.sleep(2)
             if not self.stop_input.is_set():
+                log_info("Attempting to reconnect to PS4 controller...")
                 self.device = None
-                if self.find_controller():
+                self.bluetooth_connected = False
+                
+                # Make a reconnection attempt
+                if self.attempt_bluetooth_connection():
+                    log_info("PS4 controller reconnected, restarting input loop")
                     self._input_loop()
+                else:
+                    log_warning("Failed to reconnect to PS4 controller")
+                    # Automatically switch to web-only mode
+                    self.web_only_mode = True
+                    control_manager.set_mode(ControlMode.WEB)
+                    state_tracker.update_state('control_mode', 'web_only')
     
     def _process_button_event(self, event):
         """Process button press/release events"""

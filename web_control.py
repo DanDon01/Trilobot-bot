@@ -17,15 +17,13 @@ from threading import Condition
 from debugging import log_info, log_error, log_warning, state_tracker
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
+from camera_processor import camera_processor
 
 logger = logging.getLogger('trilobot.web')
 
 # Try to import hardware-specific modules
 try:
     from trilobot import Trilobot, NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
-    from picamera2 import Picamera2
-    from picamera2.encoders import MJPEGEncoder
-    from picamera2.outputs import FileOutput
     hardware_available = True
 except ImportError:
     # Mock for development without hardware
@@ -37,37 +35,11 @@ except ImportError:
     LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT = 0, 1
     LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT = 2, 3
     LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT = 4, 5
-    
-    # Mock Picamera2
-    class MockPicamera2:
-        def __init__(self):
-            logger.warning("Using MockPicamera2 (no hardware)")
-        
-        def create_video_configuration(self, **kwargs):
-            return {"mock": "config"}
-        
-        def configure(self, config):
-            pass
-        
-        def start(self):
-            logger.debug("Mock: Camera started")
-        
-        def start_recording(self, *args, **kwargs):
-            logger.debug("Mock: Recording started")
-        
-        def stop(self):
-            logger.debug("Mock: Camera stopped")
-    
-    Picamera2 = MockPicamera2
-    MJPEGEncoder = type('MockMJPEGEncoder', (), {"__init__": lambda self, **kwargs: None})
-    FileOutput = type('MockFileOutput', (), {"__init__": lambda self, *args: None})
 
 # Initialize Flask
 app = Flask(__name__)
 
 # Global variables
-camera = None
-output = None
 overlay_mode = 'normal'
 button_states = {
     'triangle': False,
@@ -80,56 +52,16 @@ button_states = {
 light_show_thread = None
 stop_light_shows = threading.Event()
 
-class StreamingOutput(io.BufferedIOBase):
-    def __init__(self):
-        self.frame = None
-        self.condition = Condition()
-
-    def write(self, buf):
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
-
-def init_camera():
-    """Initialize the Raspberry Pi camera"""
-    global camera, output
-    
-    if not hardware_available:
-        log_warning("Camera initialization skipped - hardware not available")
-        return False
-    
-    try:
-        resolution = config.get("camera", "resolution")
-        framerate = config.get("camera", "framerate")
-        
-        camera = Picamera2()
-        camera_config = camera.create_video_configuration(
-            main={"size": (resolution[0], resolution[1])},
-            encode="main",
-            buffer_count=4
-        )
-        camera.configure(camera_config)
-        output = StreamingOutput()
-        encoder = MJPEGEncoder(bitrate=8000000)
-        camera.start_recording(encoder, FileOutput(output))
-        log_info("Camera initialized successfully")
-        return True
-    except Exception as e:
-        log_error(f"Camera initialization error: {e}")
-        return False
-
 @app.route('/')
 def index():
     """Serve the main page"""
-    stream_port = config.get("camera", "stream_port")
     return render_template('index.html', stream_url=f'/stream.mjpg')
 
 @app.route('/overlay/<mode>')
 def set_overlay(mode):
     """Set the camera overlay mode"""
-    global overlay_mode
     try:
-        overlay_mode = mode
+        camera_processor.set_overlay_mode(mode)
         log_info(f"Overlay mode set to: {mode}")
         return jsonify({'status': 'success', 'mode': mode})
     except Exception as e:
@@ -325,20 +257,37 @@ def stop():
 def stream():
     """Video streaming route"""
     def generate():
-        if not hardware_available or not output:
-            # Return a dummy frame if hardware is not available
+        output = camera_processor.get_stream()
+        
+        if not camera_processor.running:
+            # Return a dummy frame if camera is not running
             dummy_frame = b''
-            while True:
+            for _ in range(10):  # Show placeholder for a short time
                 yield (b'--FRAME\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + dummy_frame + b'\r\n')
                 time.sleep(0.1)
+                
+            # Try to start the camera again
+            camera_processor.start()
+            time.sleep(0.5)
+            
+            if not camera_processor.running:
+                # If still not running, return placeholder frames indefinitely
+                while True:
+                    yield (b'--FRAME\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + dummy_frame + b'\r\n')
+                    time.sleep(0.1)
         
         while True:
             with output.condition:
                 output.condition.wait()
                 frame = output.frame
+            
+            # Apply any overlay if needed
+            processed_frame = camera_processor.apply_overlay(frame)
+            
             yield (b'--FRAME\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
     
     return Response(generate(),
                    mimetype='multipart/x-mixed-replace; boundary=FRAME')
@@ -354,19 +303,24 @@ def cleanup():
     
     # Stop control manager
     control_manager.stop()
-    
-    # Clean up camera
-    if camera:
-        try:
-            camera.stop_recording()
-            camera.stop()
-        except:
-            pass
 
 @app.route('/test')
 def test():
     """Test if the web server is running"""
     return "Web control server is running!"
+
+@app.route('/camera_status')
+def camera_status():
+    """Get the status of the camera"""
+    try:
+        status = camera_processor.get_camera_status()
+        return jsonify(status)
+    except Exception as e:
+        log_error(f"Error getting camera status: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
 
 def main():
     """Main function to start the web control server"""
@@ -376,8 +330,8 @@ def main():
         # Start control manager
         control_manager.start()
         
-        # Initialize camera
-        init_camera()
+        # Initialize and start camera processor
+        camera_processor.start()
             
         # Start Flask server
         web_port = config.get("web_server", "port")

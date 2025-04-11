@@ -11,7 +11,7 @@ import os
 import logging
 import io
 from threading import Condition
-import numpy as np
+import sys
 from datetime import datetime
 
 # Import local modules
@@ -21,14 +21,39 @@ from config import config
 logger = logging.getLogger('trilobot.camera')
 
 # Try to import hardware-specific modules
+hardware_available = False
+picamera2_error = None
+
 try:
+    # First try to import the required modules
     from picamera2 import Picamera2
     from picamera2.encoders import MJPEGEncoder
     from picamera2.outputs import FileOutput
+    
+    # Then verify if the camera is actually accessible
+    # This will raise an exception if no camera is found
+    test_camera = Picamera2()
+    test_camera.close()
+    
     hardware_available = True
+    log_info("Camera hardware detected and available")
+except ImportError as e:
+    picamera2_error = f"PiCamera2 module not found: {e}"
+    log_warning(f"Camera hardware modules not available: {picamera2_error}")
+    log_warning("Make sure picamera2 is installed: sudo apt-get install -y python3-picamera2")
+except Exception as e:
+    picamera2_error = f"Camera hardware error: {e}"
+    log_warning(f"Camera hardware error: {picamera2_error}")
+    log_warning("Make sure the camera is enabled with 'sudo raspi-config' and connected properly")
+
+# Use numpy only if it's available, otherwise create a simple mock implementation
+try:
+    import numpy as np
 except ImportError:
-    hardware_available = False
-    logger.warning("Camera hardware modules not available. Using mock objects.")
+    log_warning("NumPy not available, using simplified implementation")
+    class MockNumpy:
+        pass
+    np = MockNumpy()
 
 class StreamingOutput(io.BufferedIOBase):
     """Output stream for camera data"""
@@ -51,7 +76,8 @@ class CameraProcessor:
         self.processing_output = StreamingOutput()
         self.overlay_mode = 'normal'
         self.running = False
-        self.detection_enabled = False  # Object detection disabled (removed OpenCV dependency)
+        self.detection_enabled = False
+        self.hardware_error = picamera2_error
         
         # Paths for captures
         self.capture_dir = "captures"
@@ -70,6 +96,9 @@ class CameraProcessor:
             resolution = config.get("camera", "resolution")
             framerate = config.get("camera", "framerate")
             
+            # Detailed logging to diagnose issues
+            log_info(f"Initializing camera with resolution {resolution}, framerate {framerate}")
+            
             self.camera = Picamera2()
             camera_config = self.camera.create_video_configuration(
                 main={"size": (resolution[0], resolution[1])},
@@ -77,10 +106,18 @@ class CameraProcessor:
                 buffer_count=4
             )
             self.camera.configure(camera_config)
-            log_info("Camera initialized successfully")
+            
+            # Test that we can get camera info
+            camera_info = self.camera.camera_properties
+            log_info(f"Camera initialized successfully. Camera info: {camera_info}")
+            
+            return True
         except Exception as e:
-            log_error(f"Camera initialization error: {e}")
+            error_msg = f"Camera initialization error: {str(e)}"
+            log_error(error_msg)
+            self.hardware_error = error_msg
             self.camera = None
+            return False
     
     def start(self):
         """Start camera and processing"""
@@ -89,19 +126,22 @@ class CameraProcessor:
             return False
             
         if not hardware_available:
-            log_warning("Hardware not available. Cannot start camera.")
+            log_warning(f"Hardware not available. Cannot start camera. Error: {self.hardware_error}")
             return False
             
         try:
             # Start camera recording
+            log_info("Starting camera recording...")
             encoder = MJPEGEncoder(bitrate=8000000)
             self.camera.start_recording(encoder, FileOutput(self.output))
             
             self.running = True
-            log_info("Camera processor started")
+            log_info("Camera processor started successfully")
             return True
         except Exception as e:
-            log_error(f"Error starting camera processor: {e}")
+            error_msg = f"Error starting camera processor: {str(e)}"
+            log_error(error_msg)
+            self.hardware_error = error_msg
             return False
     
     def stop(self):
@@ -112,6 +152,7 @@ class CameraProcessor:
         try:
             # Stop camera
             if self.camera:
+                log_info("Stopping camera recording...")
                 self.camera.stop_recording()
                 
             self.running = False
@@ -127,7 +168,7 @@ class CameraProcessor:
     def take_photo(self):
         """Capture a still photo"""
         if not hardware_available or not self.camera:
-            log_warning("Hardware not available. Cannot take photo.")
+            log_warning(f"Hardware not available. Cannot take photo. Error: {self.hardware_error}")
             return None
             
         try:
@@ -135,26 +176,31 @@ class CameraProcessor:
             filepath = os.path.join(self.capture_dir, f"photo_{timestamp}.jpg")
             
             # Capture image
+            log_info("Stopping recording to take photo...")
             self.camera.stop_recording()
             
             # Capture and save directly to file
+            log_info(f"Capturing photo to {filepath}...")
             self.camera.capture_file(filepath)
             
             # Restart recording
+            log_info("Restarting recording...")
             encoder = MJPEGEncoder(bitrate=8000000)
             self.camera.start_recording(encoder, FileOutput(self.output))
             
             log_info(f"Photo captured: {filepath}")
             return filepath
         except Exception as e:
-            log_error(f"Error taking photo: {e}")
+            error_msg = f"Error taking photo: {str(e)}"
+            log_error(error_msg)
             
             # Try to restart recording if it failed
             try:
+                log_info("Attempting to restart recording after error...")
                 encoder = MJPEGEncoder(bitrate=8000000)
                 self.camera.start_recording(encoder, FileOutput(self.output))
-            except:
-                pass
+            except Exception as restart_error:
+                log_error(f"Failed to restart recording: {restart_error}")
                 
             return None
     
@@ -170,6 +216,15 @@ class CameraProcessor:
         """Apply the current overlay mode to a frame (simplified without OpenCV)"""
         # Simply return the original frame since we've removed OpenCV processing capabilities
         return frame
+    
+    def get_camera_status(self):
+        """Get the current status of the camera"""
+        return {
+            "available": hardware_available,
+            "running": self.running,
+            "overlay_mode": self.overlay_mode,
+            "error": self.hardware_error
+        }
 
 # Create global camera processor instance
 camera_processor = CameraProcessor() 
