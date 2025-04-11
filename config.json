@@ -1,0 +1,67 @@
+{
+    "movement": {
+        "max_speed": 0.8,
+        "stick_deadzone": 0.15,
+        "acceleration": 0.5,
+        "turn_distance": 30
+    },
+    "leds": {
+        "knight_rider_interval": 0.1,
+        "party_mode_interval": 0.2,
+        "button_debounce_time": 0.3,
+        "distance_bands": [
+            20,
+            80,
+            100
+        ]
+    },
+    "camera": {
+        "resolution": [
+            640,
+            480
+        ],
+        "framerate": 20,
+        "stream_port": 8000,
+        "quality": 8
+    },
+    "controller": {
+        "connection_timeout": 20,
+        "auto_reconnect": true,
+        "reconnect_attempts": 3
+    },
+    "web_server": {
+        "port": 5000,
+        "host": "0.0.0.0",
+        "debug": false
+    },
+    "voice": {
+        "enabled": true,
+        "cache_dir": "responses",
+        "volume": 80,
+        "activation_phrase": "hey trilobot",
+        "elevenlabs_api_key": "",
+        "elevenlabs_voice_id": "Josh",
+        "elevenlabs_voices": {
+            "Josh": "TxGEqnHWrfWFTfGW9XjX",
+            "Rachel": "21m00Tcm4TlvDq8ikWAM",
+            "Domi": "AZnzlk1XvdvUeBnXmlld",
+            "Bella": "EXAVITQu4vr4xnSDxMaL",
+            "Antoni": "ErXwobaYiN019PkySvjV",
+            "Thomas": "GBv7mTt0atIp3Br8iCZE",
+            "Elli": "MF3mGyEYCl7XYWbV9V6O"
+        }
+    },
+    "vision": {
+        "enabled": false,
+        "info": "Computer vision features have been removed due to OpenCV dependencies being problematic on this system"
+    },
+    "debug": {
+        "log_level": "INFO",
+        "performance_tracking": true,
+        "state_tracking": true
+    },
+    "development": {
+        "skip_hardware_check": false,
+        "disable_camera": false
+    }
+} 

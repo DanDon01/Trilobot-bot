@@ -64,11 +64,10 @@ def main():
         
         log_info("Starting Trilobot application")
         
-        # Start control manager
+        # Start control manager (logs internally)
         control_manager.start()
-        log_info("Control manager started")
         
-        # Start camera processor (now without OpenCV dependencies)
+        # Start camera processor (logs internally if successful)
         log_info("Starting camera processor...")
         
         # Report Python and system information
@@ -93,7 +92,6 @@ def main():
         
         # Try to start the camera
         if camera_processor.start():
-            log_info("Camera processor started successfully")
             # Update camera mode in state tracker
             state_tracker.update_state('camera_mode', 'basic')
         else:
@@ -135,6 +133,19 @@ def main():
         web_thread = start_web_server()
         if not web_thread:
             log_warning("Web server failed to start")
+        
+        # Announce successful startup if voice is enabled
+        log_info("Attempting startup announcement...")
+        if config.get("voice", "enabled"):
+            try:
+                # Use a short delay to ensure audio system is ready
+                time.sleep(1.0)
+                voice_controller.speak("Trilobot systems online. Camera activated.")
+                log_info("Startup announcement sent to voice controller.")
+            except Exception as e:
+                log_error(f"Error during startup announcement: {e}")
+        else:
+            log_info("Voice control disabled, skipping announcement.")
         
         # Main loop - keep running until shutdown
         log_info("Trilobot application running. Press Ctrl+C to stop.")

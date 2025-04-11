@@ -166,9 +166,6 @@ def handle_button(button_name, action):
     try:
         is_active = (action == 'press')
         
-        # Set web control mode
-        control_manager.set_mode(ControlMode.WEB)
-        
         if button_name == 'triangle':
             if is_active:
                 # Toggle button LEDs
@@ -234,9 +231,6 @@ def handle_button(button_name, action):
 def move(direction, action):
     """Handle movement commands from web interface"""
     try:
-        # Set web control mode
-        control_manager.set_mode(ControlMode.WEB)
-        
         if action == 'start':
             if direction == 'forward':
                 control_manager.execute_action(ControlAction.MOVE_FORWARD)
