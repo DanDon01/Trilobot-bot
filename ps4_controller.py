@@ -264,6 +264,13 @@ class PS4Controller:
         """
         log_warning("PS4 controller not found after multiple attempts")
         
+        # Check if we should skip the prompt based on config
+        if config.get("development", "skip_hardware_check"):
+            print("\nSkipping PS4 controller prompt due to configuration")
+            self.web_only_mode = True
+            state_tracker.update_state('control_mode', 'web_only')
+            return True
+        
         print("\n====== CONTROLLER NOT DETECTED ======")
         print("No PS4 controller found. You have these options:")
         print("1. Continue with Web Controls only")
@@ -298,7 +305,15 @@ class PS4Controller:
         Returns:
             bool: True if a controller was found, False otherwise
         """
+        # Check if we should skip the interactive wait
+        if config.get("development", "skip_hardware_check"):
+            log_info("Skipping controller wait due to configuration")
+            return False
+            
         self.display_connection_instructions()
+        
+        # Make timeout configurable
+        timeout = config.get("controller", "connection_timeout") if config.get("controller", "connection_timeout") is not None else timeout
         
         start_time = time.time()
         check_interval = 2  # Check every 2 seconds

@@ -9,6 +9,8 @@ voice commands) and coordinating them.
 import threading
 import time
 import logging
+import sys
+import os
 from enum import Enum
 from typing import Dict, Tuple, Optional, Callable
 
@@ -18,18 +20,66 @@ from config import config
 
 logger = logging.getLogger('trilobot.control')
 
-# Import trilobot class - we'll use a mock for development
-try:
-    from trilobot import Trilobot
-    tbot = Trilobot()
-except ImportError:
-    # Mock trilobot for development without hardware
+# Import trilobot class
+trilobot_available = False
+import_error = None
+
+# Check if we should force mock mode based on config
+force_mock = config.get("development", "force_mock") if config.get("development", "force_mock") is not None else False
+
+if force_mock:
+    log_warning("Force mock mode enabled in config, using MockTrilobot")
+    trilobot_available = False
+else:
+    # Try to import from different paths to handle various install methods
+    possible_paths = [
+        os.path.expanduser('~/Pimoroni/trilobot/library'),
+        '/usr/local/lib/python3.11/dist-packages',
+        '/usr/lib/python3/dist-packages',
+    ]
+    
+    for path in possible_paths:
+        if path not in sys.path and os.path.exists(path):
+            sys.path.append(path)
+            log_info(f"Added potential Trilobot path: {path}")
+    
+    try:
+        from trilobot import Trilobot
+        log_info("Successfully imported Trilobot library")
+        trilobot_available = True
+    except ImportError as e:
+        import_error = str(e)
+        log_warning(f"Failed to import Trilobot: {e}")
+        log_warning("Will use MockTrilobot instead")
+        trilobot_available = False
+    except Exception as e:
+        import_error = str(e)
+        log_warning(f"Error importing Trilobot: {e}")
+        log_warning("Will use MockTrilobot instead")
+        trilobot_available = False
+
+# Initialize real or mock Trilobot
+if trilobot_available:
+    try:
+        tbot = Trilobot()
+        log_info("Initialized real Trilobot hardware")
+    except Exception as e:
+        log_error(f"Failed to initialize Trilobot hardware: {e}")
+        trilobot_available = False
+        # Fall back to mock if hardware initialization fails
+else:
+    # Mock trilobot for development or when real hardware isn't available
     class MockTrilobot:
         def __init__(self):
             self.left_speed = 0
             self.right_speed = 0
             self.motors_enabled = False
             logger.warning("Using MockTrilobot (no hardware)")
+            
+            # Debug - help user install trilobot if not available
+            if import_error and "No module named" in import_error:
+                logger.warning("To install Trilobot, run: ")
+                logger.warning("  curl -sSL https://get.pimoroni.com/trilobot | bash")
         
         def set_left_speed(self, speed):
             self.left_speed = speed
@@ -70,6 +120,26 @@ except ImportError:
             logger.debug(f"Mock: Set button LED {button} to {state}")
     
     tbot = MockTrilobot()
+
+# Add constants if using mock and they're not available
+if not trilobot_available:
+    # Define constants that would normally be from trilobot
+    if not 'NUM_UNDERLIGHTS' in globals():
+        globals()['NUM_UNDERLIGHTS'] = 6
+    if not 'NUM_BUTTONS' in globals():
+        globals()['NUM_BUTTONS'] = 6
+    if not 'LIGHT_FRONT_LEFT' in globals():
+        globals()['LIGHT_FRONT_LEFT'] = 0
+    if not 'LIGHT_FRONT_RIGHT' in globals():
+        globals()['LIGHT_FRONT_RIGHT'] = 1
+    if not 'LIGHT_MIDDLE_LEFT' in globals():
+        globals()['LIGHT_MIDDLE_LEFT'] = 2
+    if not 'LIGHT_MIDDLE_RIGHT' in globals():
+        globals()['LIGHT_MIDDLE_RIGHT'] = 3
+    if not 'LIGHT_REAR_LEFT' in globals():
+        globals()['LIGHT_REAR_LEFT'] = 4
+    if not 'LIGHT_REAR_RIGHT' in globals():
+        globals()['LIGHT_REAR_RIGHT'] = 5
 
 class ControlMode(Enum):
     """Control modes for the Trilobot"""

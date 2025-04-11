@@ -55,7 +55,17 @@ stop_light_shows = threading.Event()
 @app.route('/')
 def index():
     """Serve the main page"""
-    return render_template('index.html', stream_url=f'/stream.mjpg')
+    # Get hardware status information
+    hardware_status = {
+        'camera': camera_processor.get_camera_status() if 'camera_processor' in globals() else {'available': False, 'error': 'Camera processor not initialized'},
+        'controller': {'connected': ps4_controller.device is not None if 'ps4_controller' in globals() else False},
+        'trilobot': {'available': hasattr(control_manager, 'robot') and not isinstance(control_manager.robot, MockTrilobot) if 'control_manager' in globals() else False},
+    }
+    
+    # Pass status information to the template
+    return render_template('index.html', 
+                         stream_url=f'/stream.mjpg',
+                         hardware_status=hardware_status)
 
 @app.route('/overlay/<mode>')
 def set_overlay(mode):
@@ -163,19 +173,22 @@ def handle_button(button_name, action):
             if is_active:
                 # Toggle button LEDs
                 control_manager.button_leds_active = not control_manager.button_leds_active
-                if hardware_available:
-                    from trilobot import Trilobot, NUM_BUTTONS
-                    tbot = Trilobot()
-                    for led in range(NUM_BUTTONS):
-                        tbot.set_button_led(led, control_manager.button_leds_active)
                 
+                # This assumes hardware access - guard it
+                try:
+                    if hardware_available:
+                        from trilobot import Trilobot, NUM_BUTTONS
+                        tbot = Trilobot()
+                        for led in range(NUM_BUTTONS):
+                            tbot.set_button_led(led, control_manager.button_leds_active)
+                except Exception as e:
+                    log_warning(f"Unable to access hardware LEDs: {e}")
         elif button_name == 'circle':
             if is_active:
                 # Toggle Knight Rider effect
                 control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER)
                 if control_manager.knight_rider_active:
                     start_light_show(knight_rider_effect)
-                
         elif button_name == 'cross':
             if is_active:
                 # Clear all effects
@@ -183,15 +196,18 @@ def handle_button(button_name, action):
                 control_manager.party_mode_active = False
                 stop_light_shows.set()
                 
-                if hardware_available:
-                    from trilobot import Trilobot, NUM_BUTTONS
-                    tbot = Trilobot()
-                    tbot.clear_underlighting()
-                    for led in range(NUM_BUTTONS):
-                        tbot.set_button_led(led, False)
-                
+                # This assumes hardware access - guard it
+                try:
+                    if hardware_available:
+                        from trilobot import Trilobot, NUM_BUTTONS
+                        tbot = Trilobot()
+                        tbot.clear_underlighting()
+                        for led in range(NUM_BUTTONS):
+                            tbot.set_button_led(led, False)
+                except Exception as e:
+                    log_warning(f"Unable to access hardware LEDs: {e}")
+                    
                 control_manager.button_leds_active = False
-                
         elif button_name == 'square':
             if is_active:
                 # Toggle party mode
@@ -351,6 +367,10 @@ def camera_status():
     """Get the status of the camera"""
     try:
         status = camera_processor.get_camera_status()
+        # Add Trilobot hardware status
+        status['trilobot_available'] = hasattr(control_manager, 'robot') and not isinstance(control_manager.robot, MockTrilobot)
+        # Add PS4 controller status
+        status['ps4_controller'] = ps4_controller.device is not None if hasattr(ps4_controller, 'device') else False
         return jsonify(status)
     except Exception as e:
         log_error(f"Error getting camera status: {e}")

@@ -37,6 +37,13 @@ DEFAULT_CONFIG = {
         "quality": 8,                 # JPEG quality (1-10)
     },
     
+    # Controller settings
+    "controller": {
+        "connection_timeout": 20,     # Seconds to wait for PS4 controller connection
+        "auto_reconnect": True,       # Attempt to reconnect if controller disconnects
+        "reconnect_attempts": 3,      # Number of reconnection attempts
+    },
+    
     # Web server settings
     "web_server": {
         "port": 5000,                 # Web server port
@@ -63,6 +70,13 @@ DEFAULT_CONFIG = {
         "log_level": "INFO",         # Logging level
         "performance_tracking": True, # Track performance metrics
         "state_tracking": True,       # Track state changes
+    },
+    
+    # Development settings
+    "development": {
+        "force_mock": False,         # Force mock mode for development
+        "skip_hardware_check": False, # Skip hardware check for testing
+        "disable_camera": False,      # Disable camera for testing
     }
 }
 

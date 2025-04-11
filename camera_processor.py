@@ -93,17 +93,21 @@ class CameraProcessor:
     def _init_camera(self):
         """Initialize the camera hardware"""
         try:
-            resolution = config.get("camera", "resolution")
+            # Use lower resolution to avoid memory allocation errors
+            # Original resolution from config may be too high
+            resolution = (640, 480)  # Low resolution that should work reliably
             framerate = config.get("camera", "framerate")
             
             # Detailed logging to diagnose issues
             log_info(f"Initializing camera with resolution {resolution}, framerate {framerate}")
             
             self.camera = Picamera2()
+            
+            # Set a lower buffer count to reduce memory usage
             camera_config = self.camera.create_video_configuration(
                 main={"size": (resolution[0], resolution[1])},
                 encode="main",
-                buffer_count=4
+                buffer_count=2  # Reduced from 4 to lower memory usage
             )
             self.camera.configure(camera_config)
             
