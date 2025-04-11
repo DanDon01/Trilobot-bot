@@ -1,27 +1,22 @@
 # Core dependencies
-flask
-opencv-python
-picamera2
-evdev
-requests
-numpy
-trilobot>=0.0.3
-gpiozero
-RPi.GPIO>=0.7.0
-smbus2
-pigpio
-pygame
-werkzeug
-pillow
-elevenlabs
-pyyaml
+flask==2.0.1
+picamera2>=0.3.9
+evdev>=1.5.0
+numpy>=1.19.0
+opencv-python>=4.5.0
+pygame>=2.1.0
 
 # Voice recognition
 SpeechRecognition>=3.8.1
 PyAudio>=0.2.11
+elevenlabs>=0.2.24
+
+# Computer vision
+tflite-runtime>=2.5.0
+
+# Trilobot dependencies
+trilobot>=0.0.3
 
 # Development dependencies
 pytest>=7.0.0
 pylint>=2.12.0
-
-tflite-runtime
