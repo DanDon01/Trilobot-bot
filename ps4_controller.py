@@ -170,7 +170,7 @@ class PS4Controller:
             for device_path in list_devices():
                 try:
                     device = InputDevice(device_path)
-                    devices_found.append(f"{device.name} at {device_path}")
+                    devices_found.append((device, device_path))
                     
                     # Look for PS4 controller keywords in the device name
                     if ("sony" in device.name.lower() or 
@@ -181,18 +181,57 @@ class PS4Controller:
                         log_info(f"Found PS4 controller: {device.name} at {device_path}")
                         return True
                 except Exception as e:
-                    log_warning(f"Error checking device: {e}")
+                    log_warning(f"Error checking device {device_path}: {e}")
                     continue
             
             # If no devices found, log the available devices
             if devices_found:
-                log_warning(f"No PS4 controller found. Available devices: {devices_found}")
+                log_warning(f"No PS4 controller found automatically. Found {len(devices_found)} input devices.")
+                # If we have devices but none matched the PS4 keywords, let the user select
+                return self._prompt_manual_device_selection(devices_found)
             else:
                 log_warning("No input devices found")
                 
             return False
         except Exception as e:
             log_error(f"Error finding PS4 controller: {e}")
+            return False
+    
+    def _prompt_manual_device_selection(self, devices):
+        """Prompt user to manually select an input device"""
+        print("\n====== MANUAL CONTROLLER SELECTION ======")
+        print("No PS4 controller was detected automatically.")
+        print("Available input devices:")
+        
+        for i, (device, path) in enumerate(devices):
+            print(f"{i+1}. {device.name} (at {path})")
+        
+        print(f"{len(devices)+1}. None of these - continue without controller")
+        print("=========================================")
+        
+        try:
+            choice = input("\nSelect a device number (or press Enter for none): ")
+            
+            if not choice.strip():
+                return False
+            
+            choice = int(choice.strip())
+            if 1 <= choice <= len(devices):
+                selected_device, _ = devices[choice-1]
+                self.device = selected_device
+                print(f"Selected: {selected_device.name}")
+                return True
+            else:
+                print("No device selected or invalid choice.")
+                return False
+        except ValueError:
+            print("Invalid input. No device selected.")
+            return False
+        except KeyboardInterrupt:
+            print("\nSelection cancelled. Continuing without controller.")
+            return False
+        except Exception as e:
+            print(f"Error in selection: {e}")
             return False
     
     def display_connection_instructions(self):
@@ -205,9 +244,10 @@ class PS4Controller:
         print("   - While holding SHARE, press and hold the PS button")
         print("   - The light bar will start flashing rapidly when in pairing mode")
         print("")
-        print("2. On the Raspberry Pi, run these commands in a separate terminal if needed:")
-        print("   $ bluetoothctl")
+        print("2. On the Raspberry Pi, run these commands in a separate terminal:")
+        print("   $ sudo bluetoothctl")
         print("   [bluetooth]# agent on")
+        print("   [bluetooth]# default-agent")
         print("   [bluetooth]# scan on")
         print("   (Wait for 'Wireless Controller' to appear)")
         print("   [bluetooth]# pair XX:XX:XX:XX:XX:XX (replace with your controller's address)")

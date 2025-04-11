@@ -260,37 +260,74 @@ def stream():
         output = camera_processor.get_stream()
         
         if not camera_processor.running:
-            # Return a dummy frame if camera is not running
-            dummy_frame = b''
-            for _ in range(10):  # Show placeholder for a short time
-                yield (b'--FRAME\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + dummy_frame + b'\r\n')
-                time.sleep(0.1)
+            # Generate a basic placeholder image for the stream when camera is not available
+            import io
+            try:
+                # Try to use PIL to generate a simple image
+                from PIL import Image, ImageDraw, ImageFont
                 
-            # Try to start the camera again
-            camera_processor.start()
-            time.sleep(0.5)
-            
-            if not camera_processor.running:
-                # If still not running, return placeholder frames indefinitely
+                # Create a mock frame with "Camera Unavailable" text
+                def create_mock_frame():
+                    width, height = 640, 480
+                    img = Image.new('RGB', (width, height), color=(70, 70, 70))
+                    draw = ImageDraw.Draw(img)
+                    
+                    # Draw text
+                    text = "Camera Unavailable"
+                    text_width = draw.textlength(text, font=None)
+                    draw.text(
+                        ((width - text_width) / 2, height // 2 - 10),
+                        text,
+                        fill=(255, 255, 255)
+                    )
+                    
+                    # Add timestamp for changing image
+                    timestamp = time.strftime("%H:%M:%S")
+                    draw.text(
+                        (10, height - 30),
+                        f"Time: {timestamp}",
+                        fill=(200, 200, 200)
+                    )
+                    
+                    # Convert to JPEG bytes
+                    img_byte_arr = io.BytesIO()
+                    img.save(img_byte_arr, format='JPEG')
+                    return img_byte_arr.getvalue()
+                
+                # Return mock frames
+                while True:
+                    mock_frame = create_mock_frame()
+                    yield (b'--FRAME\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + mock_frame + b'\r\n')
+                    time.sleep(1)  # Update once per second
+                    
+            except ImportError:
+                # If PIL is not available, use an even simpler approach
+                log_warning("PIL not available for mock video. Using minimal fallback.")
+                empty_frame = b''
                 while True:
                     yield (b'--FRAME\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + dummy_frame + b'\r\n')
-                    time.sleep(0.1)
+                        b'Content-Type: image/jpeg\r\n\r\n' + empty_frame + b'\r\n')
+                    time.sleep(0.5)
         
+        # Normal camera streaming when available
         while True:
-            with output.condition:
-                output.condition.wait()
-                frame = output.frame
-            
-            # Apply any overlay if needed
-            processed_frame = camera_processor.apply_overlay(frame)
-            
-            yield (b'--FRAME\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
+            try:
+                with output.condition:
+                    output.condition.wait()
+                    frame = output.frame
+                
+                # Apply any overlay if needed
+                processed_frame = camera_processor.apply_overlay(frame)
+                
+                yield (b'--FRAME\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
+            except Exception as e:
+                log_error(f"Stream error: {e}")
+                time.sleep(0.5)
     
     return Response(generate(),
-                   mimetype='multipart/x-mixed-replace; boundary=FRAME')
+                mimetype='multipart/x-mixed-replace; boundary=FRAME')
 
 def cleanup():
     """Cleanup function to run when shutting down"""
