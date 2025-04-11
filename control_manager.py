@@ -9,6 +9,8 @@ voice commands) and coordinating them.
 import threading
 import time
 import logging
+import traceback
+import sys
 from enum import Enum
 from typing import Dict, Tuple, Optional, Callable
 
@@ -18,11 +20,77 @@ from config import config
 
 logger = logging.getLogger('trilobot.control')
 
-# Import trilobot class - we'll use a mock for development
+# Import trilobot class with better error handling
 try:
-    from trilobot import Trilobot
-    tbot = Trilobot()
-except ImportError:
+    print("Attempting to import trilobot module...")
+    import trilobot
+    print(f"Trilobot module imported successfully (version: {trilobot.__version__ if hasattr(trilobot, '__version__') else 'unknown'})")
+    
+    print("Attempting to initialize Trilobot hardware...")
+    tbot = trilobot.Trilobot()
+    print("Trilobot hardware initialized successfully!")
+    hardware_available = True
+except ImportError as e:
+    print(f"ERROR: Failed to import trilobot module: {e}")
+    traceback.print_exc()
+    print("Is trilobot installed? Try: pip install trilobot")
+    hardware_available = False
+    # Mock trilobot for development without hardware
+    class MockTrilobot:
+        def __init__(self):
+            self.left_speed = 0
+            self.right_speed = 0
+            self.motors_enabled = False
+            logger.warning("Using MockTrilobot (no hardware)")
+        
+        def set_left_speed(self, speed):
+            self.left_speed = speed
+            self.motors_enabled = True
+            logger.debug(f"Mock: Left motor speed set to {speed}")
+        
+        def set_right_speed(self, speed):
+            self.right_speed = speed
+            self.motors_enabled = True
+            logger.debug(f"Mock: Right motor speed set to {speed}")
+        
+        def disable_motors(self):
+            self.left_speed = 0
+            self.right_speed = 0
+            self.motors_enabled = False
+            logger.debug("Mock: Motors disabled")
+        
+        def clear_underlighting(self, show=True):
+            logger.debug("Mock: Cleared underlighting")
+        
+        def set_underlight(self, light, r_or_rgb, g=None, b=None, show=True):
+            if g is None and b is None:
+                # RGB tuple provided
+                logger.debug(f"Mock: Set underlight {light} to {r_or_rgb}")
+            else:
+                # Individual r,g,b values
+                logger.debug(f"Mock: Set underlight {light} to ({r_or_rgb}, {g}, {b})")
+        
+        def fill_underlighting(self, r_or_rgb, g=None, b=None):
+            if g is None and b is None:
+                # RGB tuple provided
+                logger.debug(f"Mock: Fill underlighting with {r_or_rgb}")
+            else:
+                # Individual r,g,b values
+                logger.debug(f"Mock: Fill underlighting with ({r_or_rgb}, {g}, {b})")
+                
+        def set_button_led(self, button, state):
+            logger.debug(f"Mock: Set button LED {button} to {state}")
+    
+    tbot = MockTrilobot()
+except Exception as e:
+    print(f"ERROR: Failed to initialize Trilobot hardware: {e}")
+    traceback.print_exc()
+    print("\nThis may be due to:")
+    print("1. I2C not enabled (run: sudo raspi-config → Interface Options → I2C → Yes)")
+    print("2. Permission issues (verify you are in the i2c, gpio, and spi groups)")
+    print("3. Hardware not properly connected")
+    hardware_available = False
+    
     # Mock trilobot for development without hardware
     class MockTrilobot:
         def __init__(self):
