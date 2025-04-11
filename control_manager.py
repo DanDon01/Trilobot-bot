@@ -285,8 +285,20 @@ class ControlManager:
     
     def _handle_take_photo(self):
         """Handle take photo action"""
-        # This would need to interface with the camera module
-        log_info("Photo capture requested")
+        # Interface with the camera processor to take a photo
+        from camera_processor import camera_processor
+        
+        try:
+            filepath = camera_processor.take_photo()
+            if filepath:
+                log_info(f"Photo captured: {filepath}")
+            else:
+                log_warning("Failed to capture photo")
+                
+        except Exception as e:
+            log_error(f"Error taking photo: {e}")
+            
+        state_tracker.update_state('camera_mode', 'photo_taken')
 
 # Create global control manager instance
 control_manager = ControlManager(tbot) 

@@ -54,10 +54,8 @@ DEFAULT_CONFIG = {
     
     # Vision settings
     "vision": {
-        "enabled": False,             # Computer vision enabled
-        "model_path": "models/detect.tflite",  # Model path
-        "confidence_threshold": 0.5,  # Detection confidence threshold
-        "detection_interval": 0.5,    # Seconds between detection runs
+        "enabled": False,             # Computer vision disabled (OpenCV removed)
+        "info": "Computer vision features have been removed due to OpenCV dependencies being problematic on this system",
     },
     
     # Debugging settings

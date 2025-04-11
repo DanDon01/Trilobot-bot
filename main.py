@@ -68,9 +68,11 @@ def main():
         control_manager.start()
         log_info("Control manager started")
         
-        # Start camera processor
+        # Start camera processor (now without OpenCV dependencies)
         if camera_processor.start():
-            log_info("Camera processor started")
+            log_info("Camera processor started (without OpenCV)")
+            # Update camera mode in state tracker
+            state_tracker.update_state('camera_mode', 'basic')
         else:
             log_warning("Failed to start camera processor")
         
