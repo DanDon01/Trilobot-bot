@@ -10,12 +10,10 @@ gpiozero
 RPi.GPIO>=0.7.0
 smbus2
 pigpio
-tflite-runtime
 pygame
 werkzeug
 pillow
 elevenlabs
-threading
 pyyaml
 
 # Voice recognition
@@ -25,3 +23,5 @@ PyAudio>=0.2.11
 # Development dependencies
 pytest>=7.0.0
 pylint>=2.12.0
+
+tflite-runtime
