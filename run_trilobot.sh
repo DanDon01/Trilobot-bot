@@ -67,23 +67,43 @@ else
     sudo raspi-config nonint do_camera 0
 fi
 
-# Ensure virtual environment is activated
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo "Activating virtual environment..."
-    source venv/bin/activate
+# Define venv directory relative to script location
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+VENV_DIR="$SCRIPT_DIR/venv"
+
+# Ensure virtual environment exists and activate it
+if [ -d "$VENV_DIR" ]; then
+    echo "Activating virtual environment: $VENV_DIR"
+    source "$VENV_DIR/bin/activate"
+    
+    # Verify activation
+    if [ -z "$VIRTUAL_ENV" ]; then
+        echo "✗ ERROR: Failed to activate virtual environment!"
+        echo "  The directory '$VENV_DIR' exists but activation failed."
+        echo "  Try recreating the venv: rm -rf venv && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+        exit 1
+    else
+        echo "✓ Virtual environment activated: $VIRTUAL_ENV"
+    fi
+else
+    echo "✗ ERROR: Virtual environment directory '$VENV_DIR' not found!"
+    echo "  Please create it first: python3 -m venv venv"
+    echo "  Then activate and install requirements: source venv/bin/activate && pip install -r requirements.txt"
+    exit 1
 fi
 
-# Run the test script first
+# Run the test script first (using python from venv)
+PYTHON_EXEC="$VIRTUAL_ENV/bin/python"
 echo ""
-echo "Running hardware test script to check for issues..."
-python test_hardware.py
+echo "Running hardware test script ($PYTHON_EXEC test_hardware.py)..."
+"$PYTHON_EXEC" test_hardware.py
 
 # Ask if user wants to continue
 echo ""
 read -p "Do you want to start the Trilobot application now? (y/n): " choice
 if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-    echo "Starting Trilobot application..."
-    python main.py
+    echo "Starting Trilobot application ($PYTHON_EXEC main.py)..."
+    "$PYTHON_EXEC" main.py
 else
     echo "Startup cancelled by user."
 fi 
