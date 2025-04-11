@@ -64,9 +64,14 @@ def main():
         
         log_info("Starting Trilobot application")
         
-        # Start control manager
-        control_manager.start()
-        log_info("Control manager started")
+        # Start control manager - this will exit if Trilobot hardware is not available
+        try:
+            control_manager.start()
+            log_info("Control manager started successfully")
+        except Exception as e:
+            log_error(f"Failed to start control manager: {e}")
+            log_error("Cannot continue without Trilobot hardware. Exiting.")
+            return
         
         # Start camera processor (now without OpenCV dependencies)
         log_info("Starting camera processor...")

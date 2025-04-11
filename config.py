@@ -57,6 +57,17 @@ DEFAULT_CONFIG = {
         "cache_dir": "responses",     # Directory for cached responses
         "volume": 80,                 # Volume percentage
         "activation_phrase": "hey trilobot",  # Wake word
+        "elevenlabs_api_key": "",     # ElevenLabs API key (empty = disabled)
+        "elevenlabs_voice_id": "Josh", # ElevenLabs voice ID to use
+        "elevenlabs_voices": {        # Available ElevenLabs voice options
+            "Josh": "TxGEqnHWrfWFTfGW9XjX",
+            "Rachel": "21m00Tcm4TlvDq8ikWAM",
+            "Domi": "AZnzlk1XvdvUeBnXmlld",
+            "Bella": "EXAVITQu4vr4xnSDxMaL",
+            "Antoni": "ErXwobaYiN019PkySvjV",
+            "Thomas": "GBv7mTt0atIp3Br8iCZE",
+            "Elli": "MF3mGyEYCl7XYWbV9V6O"
+        },
     },
     
     # Vision settings
@@ -74,7 +85,6 @@ DEFAULT_CONFIG = {
     
     # Development settings
     "development": {
-        "force_mock": False,         # Force mock mode for development
         "skip_hardware_check": False, # Skip hardware check for testing
         "disable_camera": False,      # Disable camera for testing
     }

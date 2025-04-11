@@ -20,126 +20,36 @@ from config import config
 
 logger = logging.getLogger('trilobot.control')
 
-# Import trilobot class
-trilobot_available = False
-import_error = None
-
-# Check if we should force mock mode based on config
-force_mock = config.get("development", "force_mock") if config.get("development", "force_mock") is not None else False
-
-if force_mock:
-    log_warning("Force mock mode enabled in config, using MockTrilobot")
-    trilobot_available = False
-else:
-    # Try to import from different paths to handle various install methods
-    possible_paths = [
-        os.path.expanduser('~/Pimoroni/trilobot/library'),
-        '/usr/local/lib/python3.11/dist-packages',
-        '/usr/lib/python3/dist-packages',
-    ]
+# Import trilobot class - Ensure hardware is properly detected
+try:
+    # First try direct import (standard installation)
+    from trilobot import Trilobot
+    log_info("Successfully imported Trilobot library")
     
-    for path in possible_paths:
-        if path not in sys.path and os.path.exists(path):
-            sys.path.append(path)
-            log_info(f"Added potential Trilobot path: {path}")
+    # Initialize the Trilobot hardware
+    tbot = Trilobot()
+    log_info("Initialized real Trilobot hardware")
     
-    try:
-        from trilobot import Trilobot
-        log_info("Successfully imported Trilobot library")
-        trilobot_available = True
-    except ImportError as e:
-        import_error = str(e)
-        log_warning(f"Failed to import Trilobot: {e}")
-        log_warning("Will use MockTrilobot instead")
-        trilobot_available = False
-    except Exception as e:
-        import_error = str(e)
-        log_warning(f"Error importing Trilobot: {e}")
-        log_warning("Will use MockTrilobot instead")
-        trilobot_available = False
-
-# Initialize real or mock Trilobot
-if trilobot_available:
-    try:
-        tbot = Trilobot()
-        log_info("Initialized real Trilobot hardware")
-    except Exception as e:
-        log_error(f"Failed to initialize Trilobot hardware: {e}")
-        trilobot_available = False
-        # Fall back to mock if hardware initialization fails
-else:
-    # Mock trilobot for development or when real hardware isn't available
-    class MockTrilobot:
-        def __init__(self):
-            self.left_speed = 0
-            self.right_speed = 0
-            self.motors_enabled = False
-            logger.warning("Using MockTrilobot (no hardware)")
-            
-            # Debug - help user install trilobot if not available
-            if import_error and "No module named" in import_error:
-                logger.warning("To install Trilobot, run: ")
-                logger.warning("  curl -sSL https://get.pimoroni.com/trilobot | bash")
-        
-        def set_left_speed(self, speed):
-            self.left_speed = speed
-            self.motors_enabled = True
-            logger.debug(f"Mock: Left motor speed set to {speed}")
-        
-        def set_right_speed(self, speed):
-            self.right_speed = speed
-            self.motors_enabled = True
-            logger.debug(f"Mock: Right motor speed set to {speed}")
-        
-        def disable_motors(self):
-            self.left_speed = 0
-            self.right_speed = 0
-            self.motors_enabled = False
-            logger.debug("Mock: Motors disabled")
-        
-        def clear_underlighting(self, show=True):
-            logger.debug("Mock: Cleared underlighting")
-        
-        def set_underlight(self, light, r_or_rgb, g=None, b=None, show=True):
-            if g is None and b is None:
-                # RGB tuple provided
-                logger.debug(f"Mock: Set underlight {light} to {r_or_rgb}")
-            else:
-                # Individual r,g,b values
-                logger.debug(f"Mock: Set underlight {light} to ({r_or_rgb}, {g}, {b})")
-        
-        def fill_underlighting(self, r_or_rgb, g=None, b=None):
-            if g is None and b is None:
-                # RGB tuple provided
-                logger.debug(f"Mock: Fill underlighting with {r_or_rgb}")
-            else:
-                # Individual r,g,b values
-                logger.debug(f"Mock: Fill underlighting with ({r_or_rgb}, {g}, {b})")
-                
-        def set_button_led(self, button, state):
-            logger.debug(f"Mock: Set button LED {button} to {state}")
+    # Import needed constants
+    from trilobot import (
+        NUM_UNDERLIGHTS, NUM_BUTTONS,
+        LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT,
+        LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT,
+        LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
+    )
     
-    tbot = MockTrilobot()
-
-# Add constants if using mock and they're not available
-if not trilobot_available:
-    # Define constants that would normally be from trilobot
-    if not 'NUM_UNDERLIGHTS' in globals():
-        globals()['NUM_UNDERLIGHTS'] = 6
-    if not 'NUM_BUTTONS' in globals():
-        globals()['NUM_BUTTONS'] = 6
-    if not 'LIGHT_FRONT_LEFT' in globals():
-        globals()['LIGHT_FRONT_LEFT'] = 0
-    if not 'LIGHT_FRONT_RIGHT' in globals():
-        globals()['LIGHT_FRONT_RIGHT'] = 1
-    if not 'LIGHT_MIDDLE_LEFT' in globals():
-        globals()['LIGHT_MIDDLE_LEFT'] = 2
-    if not 'LIGHT_MIDDLE_RIGHT' in globals():
-        globals()['LIGHT_MIDDLE_RIGHT'] = 3
-    if not 'LIGHT_REAR_LEFT' in globals():
-        globals()['LIGHT_REAR_LEFT'] = 4
-    if not 'LIGHT_REAR_RIGHT' in globals():
-        globals()['LIGHT_REAR_RIGHT'] = 5
+except ImportError as e:
+    log_error(f"Critical error: Failed to import Trilobot library: {e}")
+    log_error("The Trilobot hardware must be available to run this application.")
+    log_error("Please make sure the Trilobot library is installed: sudo pip3 install trilobot")
+    log_error("Or run: curl -sSL https://get.pimoroni.com/trilobot | bash")
+    sys.exit(1)
+except Exception as e:
+    log_error(f"Critical error: Failed to initialize Trilobot hardware: {e}")
+    log_error("Make sure the Trilobot hardware is properly connected")
+    log_error("If running as non-root user, ensure user has proper permissions")
+    log_error("Try running: sudo usermod -a -G gpio,spi,i2c $USER")
+    sys.exit(1)
 
 class ControlMode(Enum):
     """Control modes for the Trilobot"""

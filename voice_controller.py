@@ -13,9 +13,10 @@ import json
 from queue import Queue
 import pygame
 import tempfile
+import hashlib
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, state_tracker
+from debugging import log_info, log_error, log_warning, log_debug, state_tracker
 from config import config
 from control_manager import control_manager, ControlAction
 
@@ -32,7 +33,7 @@ except ImportError:
     logger.warning("SpeechRecognition module not available. Voice recognition disabled.")
 
 try:
-    from elevenlabs import generate, save, set_api_key, voices
+    from elevenlabs import generate, save, set_api_key, voices, Voice
     from elevenlabs.api import History
     ELEVENLABS_AVAILABLE = True
 except ImportError:
@@ -52,7 +53,13 @@ class VoiceController:
             os.makedirs(self.cache_dir)
             
         # Initialize pygame for audio playback
-        pygame.mixer.init()
+        self.audio_available = False
+        try:
+            pygame.mixer.init()
+            self.audio_available = True
+        except pygame.error as e:
+            log_warning(f"Failed to initialize audio: {e}")
+            log_warning("Voice synthesis (speech output) will be disabled")
         
         # Speech recognition components
         self.recognizer = None if not SPEECH_RECOGNITION_AVAILABLE else sr.Recognizer()
@@ -107,12 +114,12 @@ class VoiceController:
         
         # ElevenLabs setup if available
         if ELEVENLABS_AVAILABLE:
-            api_key = os.environ.get("ELEVENLABS_API_KEY")
+            api_key = config.get("voice", "elevenlabs_api_key")
             if api_key:
                 set_api_key(api_key)
-                log_info("ElevenLabs API key configured")
+                log_info("ElevenLabs API key configured from config file")
             else:
-                log_warning("ElevenLabs API key not found in environment variables")
+                log_warning("ElevenLabs API key not found in configuration")
         
         log_info("Voice Controller initialized")
         
@@ -164,61 +171,76 @@ class VoiceController:
             return True
         return False
     
-    def speak(self, text, cache_name=None):
-        """Generate and play text-to-speech audio"""
-        if not self.enabled:
-            return False
+    def speak(self, text, cache_key=None):
+        """Speak the given text using TTS"""
+        if not self.enabled or not self.audio_available:
+            log_debug(f"Voice output disabled, not speaking: {text}")
+            return
             
-        # Generate cache name from text if not provided
-        if cache_name is None:
-            # Make a simplified version of the text for the filename
-            cache_name = "".join(c for c in text if c.isalnum() or c.isspace()).lower()
-            cache_name = cache_name.replace(" ", "_")[:50]  # Limit length
-        
-        cache_path = os.path.join(self.cache_dir, f"{cache_name}.mp3")
-        
-        try:
-            # Check if cached version exists
-            if os.path.exists(cache_path):
-                log_info(f"Using cached audio for: {text}")
-                self._play_audio(cache_path)
-                return True
+        # Use provided cache key or the text itself for caching
+        if cache_key is None:
+            cache_key = text
             
-            # Generate new audio if ElevenLabs is available
-            if ELEVENLABS_AVAILABLE:
-                log_info(f"Generating speech via ElevenLabs: {text}")
+        # Cache handling
+        cache_file = os.path.join(self.cache_dir, hashlib.md5(cache_key.encode()).hexdigest() + ".mp3")
+        
+        # If not in cache, generate it (if possible)
+        if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE:
+            try:
+                # Get the voice name and ID from config
+                voice_name = config.get("voice", "elevenlabs_voice_id")
+                voice_id = None
                 
-                # Generate audio
-                audio = generate(
-                    text=text,
-                    voice="Josh",  # Default voice
-                    model="eleven_monolingual_v1"
-                )
+                # Look up the voice ID from the voices dictionary
+                voices_dict = config.get("voice", "elevenlabs_voices")
+                if voice_name in voices_dict:
+                    voice_id = voices_dict[voice_name]
+                else:
+                    # Fallback to the name as the ID directly if not found in mapping
+                    voice_id = voice_name
+                    
+                log_debug(f"Using ElevenLabs voice: {voice_name} (ID: {voice_id})")
                 
-                # Save to cache
-                save(audio, cache_path)
-                
-                # Play audio
-                self._play_audio(cache_path)
-                return True
-            else:
-                log_warning("ElevenLabs not available. Unable to generate speech.")
-                return False
-                
-        except Exception as e:
-            log_error(f"Error generating speech: {e}")
-            return False
-    
+                # Generate audio with ElevenLabs
+                api_key = config.get("voice", "elevenlabs_api_key")
+                if api_key:
+                    audio = generate(
+                        text=text,
+                        voice=Voice(voice_id=voice_id),
+                        model="eleven_monolingual_v1"
+                    )
+                    
+                    with open(cache_file, "wb") as f:
+                        f.write(audio)
+                    log_debug(f"Generated TTS audio and saved to {cache_file}")
+                else:
+                    log_warning("No ElevenLabs API key configured, cannot generate audio")
+            except Exception as e:
+                log_error(f"Failed to generate TTS for: {text} - {e}")
+                return
+        
+        # If the file exists now, play it
+        if os.path.exists(cache_file):
+            self._play_audio(cache_file)
+        else:
+            log_warning(f"No TTS cache file available for: {text}")
+            
     def _play_audio(self, file_path):
-        """Play an audio file"""
+        """Play the audio file at the given path"""
+        if not self.audio_available:
+            log_debug(f"Audio playback not available, cannot play: {file_path}")
+            return
+            
         try:
-            pygame.mixer.music.load(file_path)
             pygame.mixer.music.set_volume(self.volume)
+            pygame.mixer.music.load(file_path)
             pygame.mixer.music.play()
+            
+            # Wait for the audio to finish playing
             while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(10)
+                time.sleep(0.1)
         except Exception as e:
-            log_error(f"Error playing audio: {e}")
+            log_error(f"Failed to play audio file {file_path}: {e}")
     
     def _recognition_loop(self):
         """Main loop for voice recognition"""
