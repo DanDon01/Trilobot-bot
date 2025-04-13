@@ -23,6 +23,8 @@ logger = logging.getLogger('trilobot.ps4')
 try:
     from evdev import InputDevice, categorize, ecodes, list_devices
     EVDEV_AVAILABLE = True
+    # Log the value of the constant
+    logger.debug(f"Value of ecodes.EV_ABS: {ecodes.EV_ABS}")
 except ImportError:
     EVDEV_AVAILABLE = False
     logger.warning("Evdev module not available. PS4 controller support disabled.")
@@ -494,33 +496,27 @@ class PS4Controller:
                 event_count += 1
                 # --- LOG ALL EVENTS --- 
                 log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
-                log_debug(f"--- Checking event type: {event.type} ---")
+                log_debug(f"--- Checking event type value: {event.type} (type: {type(event.type)}) ---")
                 
                 # --- Re-enable processing --- # MODIFIED
                 processed = False
-                if event.type == ecodes.EV_KEY:
-                    log_debug(f"--- Event type matched EV_KEY ---")
-                    # Log ALL ABS events first # REMOVE THIS INNER COMMENT
-                    # log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
-                    self._process_button_event(event) # Use the existing evdev processor
+                # --- Use integer literals for type checking --- # MODIFIED
+                if event.type == 1: # Was ecodes.EV_KEY
+                    log_debug(f"--- Event type matched 1 (EV_KEY) ---") # MODIFIED
+                    self._process_button_event(event) 
                     processed = True
-                elif event.type == ecodes.EV_ABS:
-                    log_debug(f"--- Event type matched EV_ABS ---")
-                    # log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}") # Already logged above
-                    self._process_axis_event(event)   # Use the existing evdev processor
+                elif event.type == 3: # Was ecodes.EV_ABS
+                    log_debug(f"--- Event type matched 3 (EV_ABS) ---") # MODIFIED
+                    self._process_axis_event(event)   
                     processed = True
-                    # --- Try calling movement directly after axis processing ---
-                    log_debug("--- Triggering movement check after ABS event ---")
-                    self._process_movement() # ADDED
-                elif event.type == ecodes.EV_SYN:
-                    log_debug(f"--- Event type matched EV_SYN ---")
+                    # --- Try calling movement directly after axis processing --- 
+                    log_debug("--- Triggering movement check after ABS event ---") 
+                    self._process_movement() 
+                elif event.type == 0: # Was ecodes.EV_SYN
+                    log_debug(f"--- Event type matched 0 (EV_SYN) ---") # MODIFIED
                     # Sync event often follows a burst of axis events
                     log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # Trigger movement processing after sync if axes might have changed
                     # --- Temporarily disable SYN-based movement trigger ---
-                    # if self.axes_changed_since_last_sync: # Need to add this flag logic
-                    #      self._process_movement()
-                    #      self.axes_changed_since_last_sync = False
                     processed = False # Don't re-trigger movement below for Sync
                 else:
                     log_debug(f"--- Event type UNHANDLED: {event.type} ---")
