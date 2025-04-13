@@ -472,8 +472,10 @@ class PS4Controller:
                              log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
                         event_count = 0 # Reset count on reopen
 
-                    # Read using the local_device instance
+                    # --- Read Event ---
+                    log_debug("Attempting local_device.read_one()...")
                     event = local_device.read_one() 
+                    log_debug(f"local_device.read_one() returned: {type(event)}")
                     
                     if event is None:
                         # No event available right now
