@@ -443,24 +443,52 @@ class PS4Controller:
             last_event_time = time.time()
             no_event_counter = 0
 
-            while not self.stop_input.is_set():
-                event = self.device.read_one() # Non-blocking read
-                
-                if event is None:
-                    # No event available right now
-                    no_event_counter += 1
-                    if no_event_counter > 100000: # Log approx every second if idle
-                         log_debug("No PS4 events read, looping...")
-                         no_event_counter = 0
-                    time.sleep(0.01) # Small sleep to prevent busy-waiting
-                    continue 
-                
-                # If we reach here, an event was received
-                no_event_counter = 0 # Reset idle counter
-                last_event_time = time.time()
-                log_debug(f"--- Event received via read_one (Count: {event_count + 1}) ---") 
+            local_device = None # Device object specific to this thread/loop
+            device_path = self.device.path if self.device else None # Get path initially
 
+            if not device_path:
+                 log_error("Cannot start input loop: Initial device path not found.")
+                 self.running = False
+                 return
+
+            while not self.stop_input.is_set():
                 try:
+                    # Ensure device is open
+                    if local_device is None:
+                        log_info(f"Attempting to open device {device_path} within loop...")
+                        local_device = InputDevice(device_path)
+                        log_info(f"Device {device_path} opened successfully within loop.")
+                        try:
+                             log_info(f"Attempting to grab exclusive access to {device_path}...")
+                             local_device.grab() # Request exclusive access
+                             log_info(f"Successfully grabbed {device_path}.")
+                        except OSError as grab_err:
+                             # Handle permission errors specifically if needed
+                             if 'Operation not permitted' in str(grab_err):
+                                  log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
+                             else:
+                                  log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
+                        except Exception as grab_ex:
+                             log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
+                        event_count = 0 # Reset count on reopen
+
+                    # Read using the local_device instance
+                    event = local_device.read_one() 
+                    
+                    if event is None:
+                        # No event available right now
+                        no_event_counter += 1
+                        if no_event_counter > 100000: # Log approx every second if idle
+                             log_debug("No PS4 events read, looping...")
+                             no_event_counter = 0
+                        time.sleep(0.01) # Small sleep to prevent busy-waiting
+                        continue 
+                    
+                    # If we reach here, an event was received
+                    no_event_counter = 0 # Reset idle counter
+                    last_event_time = time.time()
+                    log_debug(f"--- Event received via read_one (Count: {event_count + 1}) ---") 
+
                     # --- Event Processing Start ---
                     event_count += 1
                     log_debug(f"Event {event_count}: type={event.type}, code={event.code}, value={event.value}") 
@@ -477,9 +505,36 @@ class PS4Controller:
                     if processed:
                         self._process_movement()
                     # --- Event Processing End ---
+                except BlockingIOError:
+                     # ... (rest of BlockingIOError handling) ...
+                     log_debug("BlockingIOError caught, sleeping briefly.")
+                     time.sleep(0.05)
+                     continue
+                except OSError as loop_os_err:
+                     # ... (rest of OSError handling - make sure to close local_device) ...
+                     log_error(f"Controller disconnected or read error within loop: {loop_os_err}")
+                     if local_device:
+                          try:
+                               log_debug(f"Closing pre-opened device {device_path}")
+                               local_device.close()
+                               local_device = None # Prevent use elsewhere
+                          except Exception as e:
+                               log_warning(f"Could not close pre-opened device: {e}")
+                     self.device = None # Mark as closed
+                     log_info("Waiting briefly before attempting to reopen device...")
+                     time.sleep(2.0) # Wait before trying to reopen
                 except Exception as inner_e:
-                    # Log errors happening *during* event processing
+                    # ... (rest of inner_e handling - make sure to close local_device) ...
                     log_error(f"Error processing event {event_count}: {inner_e}", exc_info=True)
+                    if local_device:
+                         try:
+                              log_debug(f"Closing pre-opened device {device_path}")
+                              local_device.close()
+                              local_device = None # Prevent use elsewhere
+                         except Exception as e:
+                              log_warning(f"Could not close pre-opened device: {e}")
+                    self.device = None
+                    time.sleep(1.0)
 
             # Log loop exit reason
             if self.stop_input.is_set():

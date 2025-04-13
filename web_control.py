@@ -82,13 +82,15 @@ def knight_rider_effect():
     """Knight Rider light effect"""
     log_info("Starting Knight Rider effect")
     
-    if not hardware_available:
-        return
+    # *** Use the shared robot instance ***
+    tbot = control_manager.robot 
+    if tbot is None or not hardware_available:
+         log_warning("Knight Rider effect skipped: Hardware not available or not initialized.")
+         return
     
     try:
-        from trilobot import Trilobot, LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT, LIGHT_MIDDLE_RIGHT, LIGHT_FRONT_RIGHT
-        tbot = Trilobot()
-        
+        # We don't need to import Trilobot or constants here anymore
+        # Assume constants were imported globally or use direct numbers if necessary
         lights = [
             LIGHT_FRONT_LEFT, LIGHT_MIDDLE_LEFT, LIGHT_REAR_LEFT,
             LIGHT_REAR_RIGHT, LIGHT_MIDDLE_RIGHT, LIGHT_FRONT_RIGHT
@@ -111,6 +113,8 @@ def knight_rider_effect():
                 tbot.clear_underlighting(show=False)
                 tbot.set_underlight(lights[i], (255, 0, 0), show=True)
                 time.sleep(interval)
+    except AttributeError as ae:
+         log_error(f"Knight Rider effect error (likely missing method on robot instance): {ae}")
     except Exception as e:
         log_error(f"Knight Rider effect error: {e}")
 
@@ -118,13 +122,14 @@ def party_mode_effect():
     """Party mode light effect"""
     log_info("Starting Party mode effect")
     
-    if not hardware_available:
+    # *** Use the shared robot instance ***
+    tbot = control_manager.robot
+    if tbot is None or not hardware_available:
+        log_warning("Party mode effect skipped: Hardware not available or not initialized.")
         return
     
     try:
-        from trilobot import Trilobot
-        tbot = Trilobot()
-        
+        # We don't need to import Trilobot here anymore
         colors = [
             (255, 0, 0),    # Red
             (0, 255, 0),    # Green
@@ -142,6 +147,8 @@ def party_mode_effect():
                     break
                 tbot.fill_underlighting(color)
                 time.sleep(interval)
+    except AttributeError as ae:
+         log_error(f"Party mode effect error (likely missing method on robot instance): {ae}")
     except Exception as e:
         log_error(f"Party mode effect error: {e}")
 
@@ -166,6 +173,9 @@ def handle_button(button_name, action):
     
     try:
         is_active = (action == 'press')
+        # *** Get the shared robot instance ***
+        tbot = control_manager.robot 
+        can_access_hw = hardware_available and tbot is not None
         
         if button_name == 'triangle':
             if is_active:
@@ -174,44 +184,58 @@ def handle_button(button_name, action):
                 
                 # This assumes hardware access - guard it
                 try:
-                    if hardware_available:
-                        from trilobot import Trilobot, NUM_BUTTONS
-                        tbot = Trilobot()
+                    # *** Use shared tbot instance ***
+                    if can_access_hw:
                         for led in range(NUM_BUTTONS):
                             tbot.set_button_led(led, control_manager.button_leds_active)
+                    else:
+                         log_warning("Cannot set button LEDs: Hardware not available or not initialized.")
+                except AttributeError as ae:
+                     log_warning(f"Unable to set button LEDs (likely missing method on robot instance): {ae}")
                 except Exception as e:
                     log_warning(f"Unable to access hardware LEDs: {e}")
         elif button_name == 'circle':
             if is_active:
-                # Toggle Knight Rider effect
                 control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="web")
                 if control_manager.knight_rider_active:
                     start_light_show(knight_rider_effect)
+                else: # Ensure it stops if toggled off
+                     stop_light_shows.set()
+                     if can_access_hw:
+                          try: tbot.clear_underlighting() 
+                          except: pass # Ignore errors during clear
         elif button_name == 'cross':
             if is_active:
                 # Clear all effects
                 control_manager.knight_rider_active = False
                 control_manager.party_mode_active = False
                 stop_light_shows.set()
+                control_manager.button_leds_active = False # Also turn off button LEDs
                 
                 # This assumes hardware access - guard it
                 try:
-                    if hardware_available:
-                        from trilobot import Trilobot, NUM_BUTTONS
-                        tbot = Trilobot()
+                    # *** Use shared tbot instance ***
+                    if can_access_hw:
                         tbot.clear_underlighting()
                         for led in range(NUM_BUTTONS):
                             tbot.set_button_led(led, False)
+                    else:
+                         log_warning("Cannot clear LEDs: Hardware not available or not initialized.")
+                except AttributeError as ae:
+                     log_warning(f"Unable to clear LEDs (likely missing method on robot instance): {ae}")
                 except Exception as e:
                     log_warning(f"Unable to access hardware LEDs: {e}")
                     
-                control_manager.button_leds_active = False
         elif button_name == 'square':
             if is_active:
-                # Toggle party mode
                 control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="web")
                 if control_manager.party_mode_active:
                     start_light_show(party_mode_effect)
+                else: # Ensure it stops if toggled off
+                     stop_light_shows.set()
+                     if can_access_hw:
+                          try: tbot.clear_underlighting() 
+                          except: pass # Ignore errors during clear
         
         return jsonify({
             'status': 'success',
