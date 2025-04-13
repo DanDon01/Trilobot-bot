@@ -581,44 +581,48 @@ class PS4Controller:
     def _process_axis_event(self, event):
         """Process joystick/trigger events (evdev) - RESTORED"""
         log_debug(f"--- ENTERED _process_axis_event --- Code: {event.code}")
-        # --- Use original logic with axis_map and normalization --- 
         axis_name = self.axis_map.get(event.code)
+        log_debug(f"Axis Name from map: {axis_name}") # ADDED
         if axis_name:
-            # Normalize axis value from 0-255 (triggers) or ~-32k to +32k (sticks) to -1 to 1 or 0 to 1
-            if 'l2' in axis_name or 'r2' in axis_name: # Check includes button and analog trigger
+            value = 0.0 # Initialize value
+            # Normalize axis value
+            if 'l2' in axis_name or 'r2' in axis_name: 
                 value = event.value / 255.0
             elif 'dpad' in axis_name:
-                 value = float(event.value) # Ensure float
-            else:
-                # Sticks roughly -32768 to 32767 -> -1 to 1
+                 value = float(event.value) 
+            else: # Sticks
                 value = event.value / 32768.0
                 value = max(-1.0, min(1.0, value))
+            log_debug(f"Normalized value: {value:.4f}") # ADDED
 
             # Update only if value has changed significantly
-            if abs(self.axes.get(axis_name, -99) - value) > 0.01: # Use dummy value for first check
+            current_val = self.axes.get(axis_name, 999)
+            delta = abs(current_val - value)
+            threshold = 0.01
+            has_changed = delta > threshold
+            log_debug(f"Current val: {current_val:.4f}, Delta: {delta:.4f}, Changed: {has_changed}") # ADDED
+            if has_changed:
                  self.axes[axis_name] = value
-                 self.axes_changed_since_last_sync = True # Flag that movement needs recalculating
-                 log_debug(f"EVDEV Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
+                 self.axes_changed_since_last_sync = True 
+                 log_debug(f"Stored self.axes['{axis_name}'] = {value:.4f}") # ADDED
                  log_debug(f"---> Set axes_changed_since_last_sync = True")
-        # --- Removed simplified logic --- 
-        # self.axes[event.code] = event.value 
-        # self.axes_changed_since_last_sync = True 
-        # log_debug(f"EVDEV Axis event: Stored raw value {event.value} for code {event.code}")
-        # log_debug(f"---> Set axes_changed_since_last_sync = True (forced)")
 
     def _process_movement(self):
         """Process movement based on joystick positions - RESTORED"""
-        log_debug("--- ENTERED _process_movement (Restored) ---") # UPDATED LOG
+        log_debug("--- ENTERED _process_movement (Restored) ---")
+        log_debug(f"Using deadzone: {self.deadzone}, max_speed: {self.max_speed}") # ADDED
         
-        # --- Use original logic with deadzone and scaling --- 
         left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis
         right_y = -self.axes.get('right_y', 0.0) # Invert Y axis
+        log_debug(f"Fetched self.axes values: left_y(raw_inv): {left_y:.4f}, right_y(raw_inv): {right_y:.4f}") # ADDED
 
         left_y_deadzoned = 0 if abs(left_y) < self.deadzone else left_y
         right_y_deadzoned = 0 if abs(right_y) < self.deadzone else right_y
+        log_debug(f"Deadzone applied values: left_y: {left_y_deadzoned:.4f}, right_y: {right_y_deadzoned:.4f}") # ADDED
         
         final_left_speed = left_y_deadzoned * self.max_speed
         final_right_speed = right_y_deadzoned * self.max_speed
+        log_debug(f"Final calculated speeds: L={final_left_speed:.4f}, R={final_right_speed:.4f}") # ADDED
 
         # --- Original Update Logic ---
         # Check if control mode is PS4
