@@ -60,7 +60,8 @@ class PS4Controller:
         
         # Button mapping (for PS4 controller using evdev)
         self.button_map = {
-            304: 'x',          # X button
+            # Standard PlayStation button codes
+            304: 'x',          # X button (cross)
             305: 'circle',     # Circle button
             307: 'triangle',   # Triangle button
             308: 'square',     # Square button
@@ -73,11 +74,28 @@ class PS4Controller:
             316: 'ps',         # PS button
             317: 'l3',         # L3 button (left stick press)
             318: 'r3',         # R3 button (right stick press)
-            # Add D-pad buttons which are reported as buttons on some controllers
+            
+            # D-pad buttons - these might be reported as buttons on some controllers
             544: 'dpad_left',  # D-pad Left 
             545: 'dpad_right', # D-pad Right
             546: 'dpad_up',    # D-pad Up
             547: 'dpad_down',  # D-pad Down
+            
+            # Alternative button codes sometimes reported by DualShock 4
+            # (depends on connection method and controller firmware)
+            288: 'x_alt',          # X button (alt)
+            289: 'circle_alt',     # Circle button (alt)
+            290: 'triangle_alt',   # Triangle button (alt)
+            291: 'square_alt',     # Square button (alt)
+            292: 'l1_alt',         # L1 button (alt)
+            293: 'r1_alt',         # R1 button (alt)
+            294: 'l2_button_alt',  # L2 button (alt)
+            295: 'r2_button_alt',  # R2 button (alt)
+            296: 'share_alt',      # Share button (alt)
+            297: 'options_alt',    # Options button (alt)
+            298: 'ps_alt',         # PS button (alt)
+            299: 'l3_alt',         # L3 button (alt)
+            300: 'r3_alt',         # R3 button (alt)
         }
         
         # Axis mapping
@@ -482,6 +500,15 @@ class PS4Controller:
             capabilities = local_device.capabilities(verbose=True)
             log_info(f"Controller capabilities: {capabilities}")
             
+            # Print all available button and axis codes to help debugging
+            log_info("Available button codes:")
+            for code_name, code_val in ecodes.keys.items():
+                log_debug(f"EV_KEY: {code_name} = {code_val}")
+                
+            log_info("Available axis codes:")
+            for code_name, code_val in ecodes.ABS.items():
+                log_debug(f"EV_ABS: {code_name} = {code_val}")
+            
             log_info(f"Entering non-blocking evdev read loop for {self.device_path}...")
             event_count = 0
 
@@ -491,8 +518,8 @@ class PS4Controller:
                     time.sleep(0.01)
                     continue
 
-                # ADDED: Log every raw event received before processing
-                log_debug(f"RAW EVDEV Event Received: Type={event.type}, Code={event.code}, Value={event.value}")
+                # CRITICAL: Log every raw event received before processing
+                log_info(f"RAW EVDEV Event: Type={event.type}({self._event_type_name(event.type)}), Code={event.code}, Value={event.value}")
 
                 # If we reach here, an event was received
                 event_count += 1
@@ -511,37 +538,21 @@ class PS4Controller:
                         pass
                     log_info(f"Button event: {event_type_name}({event.type}), Code={event.code}({key_name}), Value={event.value}")
                 
-                elif event.type == 3:  # EV_ABS
-                    event_type_name = "EV_ABS"
-                    # Try to get the axis name from ecodes for better logging
-                    abs_name = "unknown"
-                    try:
-                        for code_name, code_val in ecodes.ABS.items():
-                            if code_val == event.code:
-                                abs_name = code_name
-                                break
-                    except:
-                        pass
-                    log_debug(f"Axis event: {event_type_name}({event.type}), Code={event.code}({abs_name}), Value={event.value}")
-                
-                # --- Explicit numeric checks to avoid any type issues ---
+                # --- CRITICAL: Explicit INT comparison for EV_KEY (1) to ensure all button events are caught ---
                 if int(event.type) == 1:  # EV_KEY (button)
-                    log_debug(f"--- Event type matched 1 (EV_KEY) ---")
+                    log_info(f"*** BUTTON EVENT DETECTED *** Code={event.code}, Value={event.value}")
                     self._process_button_event(event) 
-                    processed = True
                 elif int(event.type) == 3:  # EV_ABS (axis)
                     log_debug(f"--- Event type matched 3 (EV_ABS) ---")
                     self._process_axis_event(event)
-                    processed = True
                 elif int(event.type) == 0:  # EV_SYN (synchronization)
                     log_debug(f"--- Event type matched 0 (EV_SYN) ---")
                     log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # RE-ENABLE SYN-based movement trigger
+                    # Trigger movement check after SYN event
                     if self.axes_changed_since_last_sync:
                          log_debug("--- Triggering movement check after SYN event ---")
                          self._process_movement()
                          self.axes_changed_since_last_sync = False
-                    processed = False 
                 else:
                     log_debug(f"--- Event type UNHANDLED: {event.type} ---") 
 
@@ -565,6 +576,18 @@ class PS4Controller:
                     log_warning(f"Error closing evdev device {self.device_path}: {close_err}")
             self.running = False 
             log_info(f"PS4 controller evdev input loop finished ({thread_name}).")
+    
+    def _event_type_name(self, type_val):
+        """Convert event type value to name"""
+        types = {
+            0: "EV_SYN",
+            1: "EV_KEY",
+            2: "EV_REL", 
+            3: "EV_ABS",
+            4: "EV_MSC",
+            5: "EV_SW"
+        }
+        return types.get(type_val, "UNKNOWN")
 
     def _process_button_event(self, event):
         """Process button press/release events (evdev)"""
@@ -577,39 +600,55 @@ class PS4Controller:
             log_debug(f"EVDEV Button event: {button_name} {'pressed' if is_pressed else 'released'} (val: {event.value})")
             log_info(f"PS4 BUTTON: {button_name} {'PRESSED' if is_pressed else 'RELEASED'}")  # MORE VISIBLE LOG
 
+            # Normalize alt button names to standard names
+            standard_name = button_name
+            if button_name.endswith('_alt'):
+                standard_name = button_name[:-4]  # Remove '_alt' suffix
+                log_debug(f"Normalized alt button {button_name} to {standard_name}")
+
             # Trigger actions based on button press (not release)
             if is_pressed: # Only trigger on initial press (value 1) or repeat (value 2)
                  action = None
-                 if button_name == 'x': 
+                 
+                 # Map standard and alt buttons to the same actions
+                 if standard_name == 'x': 
                      action = ControlAction.STOP
                      log_debug("X button - STOPPING MOTORS")
-                 elif button_name == 'triangle': 
+                 elif standard_name == 'triangle': 
                      action = ControlAction.TAKE_PHOTO
                      log_debug("Triangle button - TAKING PHOTO")
-                 elif button_name == 'circle': 
+                 elif standard_name == 'circle': 
                      action = ControlAction.TOGGLE_KNIGHT_RIDER
                      log_debug("Circle button - TOGGLING KNIGHT RIDER")
-                 elif button_name == 'square': 
+                 elif standard_name == 'square': 
                      action = ControlAction.TOGGLE_PARTY_MODE
                      log_debug("Square button - TOGGLING PARTY MODE")
                  # Enhanced D-pad controls
-                 elif button_name == 'dpad_up': 
+                 elif standard_name == 'dpad_up': 
                      action = ControlAction.MOVE_FORWARD
                      log_debug("D-pad UP - MOVING FORWARD")
-                 elif button_name == 'dpad_down': 
+                 elif standard_name == 'dpad_down': 
                      action = ControlAction.MOVE_BACKWARD
                      log_debug("D-pad DOWN - MOVING BACKWARD")
-                 elif button_name == 'dpad_left': 
+                 elif standard_name == 'dpad_left': 
                      action = ControlAction.TURN_LEFT
                      log_debug("D-pad LEFT - TURNING LEFT")
-                 elif button_name == 'dpad_right': 
+                 elif standard_name == 'dpad_right': 
                      action = ControlAction.TURN_RIGHT
                      log_debug("D-pad RIGHT - TURNING RIGHT")
+                 elif standard_name == 'options':
+                     log_debug("Options button - NO ACTION ASSIGNED")
+                 elif standard_name == 'share':
+                     log_debug("Share button - NO ACTION ASSIGNED")
+                 elif standard_name == 'ps':
+                     log_debug("PS button - NO ACTION ASSIGNED")
+                 elif standard_name in ['l1', 'r1', 'l2_button', 'r2_button', 'l3', 'r3']:
+                     log_debug(f"{standard_name} button - NO ACTION ASSIGNED")
 
                  if action:
                      # Ensure controller has priority before sending action
                      if control_manager.current_mode == ControlMode.PS4:
-                          log_info(f"PS4 Event: {button_name} pressed -> {action.name}")
+                          log_info(f"PS4 Event: {standard_name} pressed -> {action.name}")
                           control_manager.execute_action(action, source="ps4")
                      else:
                           log_warning(f"Button press ignored: Control mode is {control_manager.current_mode}, not PS4")
@@ -703,22 +742,41 @@ class PS4Controller:
 
     def _process_movement(self):
         """Process movement based on joystick positions - REFACTORED"""
-        log_debug("--- ENTERED _process_movement (Refactored) ---") # Updated log
-        log_debug(f"Using deadzone: {self.deadzone}, max_speed: {self.max_speed}") # ADDED
+        log_debug("--- ENTERED _process_movement (Control Scheme Fixed) ---")
+        log_debug(f"Using deadzone: {self.deadzone}, max_speed: {self.max_speed}")
 
-        left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis
-        right_y = -self.axes.get('right_y', 0.0) # Invert Y axis
-        log_debug(f"Fetched self.axes values: left_y(raw_inv): {left_y:.4f}, right_y(raw_inv): {right_y:.4f}") # ADDED
+        # Get stick positions - NOTE: y-axis is already inverted in _process_axis_event
+        # so up = negative, down = positive
+        left_y = self.axes.get('left_y', 0.0)  # Up/down movement (already inverted)
+        left_x = self.axes.get('left_x', 0.0)  # Left/right movement for steering
+        
+        log_debug(f"Raw stick values: left_y: {left_y:.4f}, left_x: {left_x:.4f}")
 
-        left_y_deadzoned = 0 if abs(left_y) < self.deadzone else left_y
-        right_y_deadzoned = 0 if abs(right_y) < self.deadzone else right_y
-        log_debug(f"Deadzone applied values: left_y: {left_y_deadzoned:.4f}, right_y: {right_y_deadzoned:.4f}") # ADDED
+        # Apply deadzone to both axes
+        left_y = 0 if abs(left_y) < self.deadzone else left_y
+        left_x = 0 if abs(left_x) < self.deadzone else left_x
+        
+        log_debug(f"After deadzone: left_y: {left_y:.4f}, left_x: {left_x:.4f}")
 
-        final_left_speed = left_y_deadzoned * self.max_speed
-        final_right_speed = right_y_deadzoned * self.max_speed
-        log_debug(f"Final calculated speeds: L={final_left_speed:.4f}, R={final_right_speed:.4f}") # ADDED
+        # Invert Y axis AGAIN because our normalization in _process_axis_event has 
+        # up = negative, down = positive, but we want up = forward, down = backward
+        # This double inversion makes pushing up = forward
+        forward_speed = -left_y * self.max_speed
+        
+        # Calculate steering - left_x is negative for left, positive for right
+        turning_speed = left_x * self.max_speed * 0.7  # 70% of max speed for turning
+        
+        # Calculate final wheel speeds with differential steering
+        final_left_speed = forward_speed - turning_speed  # Subtracting turning for left wheel
+        final_right_speed = forward_speed + turning_speed  # Adding turning for right wheel
+        
+        # Clamp to max speed
+        final_left_speed = max(-self.max_speed, min(self.max_speed, final_left_speed))
+        final_right_speed = max(-self.max_speed, min(self.max_speed, final_right_speed))
+        
+        log_debug(f"Final wheel speeds: L={final_left_speed:.4f}, R={final_right_speed:.4f}")
 
-        # --- Refactored Logic: Use Control Manager --- #
+        # Set motor speeds through control manager
         if control_manager.current_mode == ControlMode.PS4:
             # Only log and move if there's actual movement
             if abs(final_left_speed) > 0.01 or abs(final_right_speed) > 0.01:
@@ -730,7 +788,6 @@ class PS4Controller:
             control_manager.set_motor_speeds(final_left_speed, final_right_speed)
         else:
             log_warning(f"PS4 movement ignored, current mode is {control_manager.current_mode}")
-        # --- End Refactored Logic ---
 
 
 # Create global PS4 controller instance
