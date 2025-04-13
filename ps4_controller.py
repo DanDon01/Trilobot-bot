@@ -38,7 +38,7 @@ class PS4Controller:
     """Handler for PS4 controller input"""
     
     def __init__(self):
-        self.device = None
+        self.device_path = None
         self.running = False
         self.input_thread = None
         self.stop_input = threading.Event()
@@ -206,41 +206,50 @@ class PS4Controller:
             return False
     
     def find_controller(self):
-        """Find PS4 controller device"""
+        """Find the specific PS4 controller device node (not touchpad/motion)."""
         if not EVDEV_AVAILABLE:
             log_error("Evdev module not available. Cannot find PS4 controller.")
             return False
             
+        target_device_name = "Wireless Controller" # Adjust if name is slightly different
+        excluded_names = ["Touchpad", "Motion Sensor"]
+        self.device_path = None # Reset path
+        potential_devices = []
+
         try:
-            # Search for PS4 controller in available devices
-            devices_found = []
-            
-            for device_path in list_devices():
-                try:
-                    device = InputDevice(device_path)
-                    devices_found.append((device, device_path))
-                    
-                    # Look for PS4 controller keywords in the device name
-                    if ("sony" in device.name.lower() or 
-                        "playstation" in device.name.lower() or 
-                        "wireless controller" in device.name.lower() or
-                        "dualshock" in device.name.lower()):
-                        self.device = device
-                        log_info(f"Found PS4 controller: {device.name} at {device_path}")
-                        return True
-                except Exception as e:
-                    log_warning(f"Error checking device {device_path}: {e}")
-                    continue
-            
-            # If no devices found, log the available devices
-            if devices_found:
-                log_warning(f"No PS4 controller found automatically. Found {len(devices_found)} input devices.")
-                # If we have devices but none matched the PS4 keywords, let the user select
-                return self._prompt_manual_device_selection(devices_found)
+            devices = [InputDevice(path) for path in list_devices()]
+            for device in devices:
+                log_debug(f"Checking device: {device.name} at {device.path}")
+                # Check if it's the target name and not excluded
+                if target_device_name in device.name and not any(ex in device.name for ex in excluded_names):
+                    self.device_path = device.path
+                    log_info(f"Found target PS4 controller: {device.name} at {self.device_path}")
+                    # Close the temporary device object used for checking
+                    try: device.close() 
+                    except: pass 
+                    return True
+                # Keep track of potential devices for manual selection if needed
+                elif "controller" in device.name.lower() or "sony" in device.name.lower() or "dualshock" in device.name.lower():
+                    potential_devices.append((device, device.path))
+                 # Close the temporary device object used for checking
+                try: device.close() 
+                except: pass
+
+            # If target wasn't found, handle potential devices
+            log_warning(f"Could not automatically find device named exactly '{target_device_name}' (excluding {excluded_names}).")
+            if potential_devices:
+                 log_warning(f"Found {len(potential_devices)} potential controller-like devices.")
+                 # Pass paths for manual selection
+                 potential_paths = [(name, path) for dev, path in potential_devices]
+                 # Need to adjust _prompt_manual_device_selection to handle (name, path) tuples
+                 # For now, let's fall back to the old manual selection logic if needed, 
+                 # but ideally, we find the target automatically.
+                 # Simplified: If automatic fails, prompt might still show irrelevant devices.
+                 return self._prompt_manual_device_selection([(InputDevice(path), path) for _, path in potential_paths]) # Re-open for prompt
             else:
-                log_warning("No input devices found")
-                
-            return False
+                 log_warning("No input devices found resembling a controller.")
+                 return False
+
         except Exception as e:
             log_error(f"Error finding PS4 controller: {e}")
             return False
@@ -269,7 +278,7 @@ class PS4Controller:
             choice = int(choice_str)
             if 1 <= choice <= len(devices):
                 selected_device, _ = devices[choice-1]
-                self.device = selected_device
+                self.device_path = _
                 print(f"Selected: {selected_device.name}")
                 return True
             else:
@@ -412,9 +421,9 @@ class PS4Controller:
         """Initialize and start controller input handling"""
         log_info("Attempting to start PS4 controller...")
 
-        # Check if already found by the initial check in main.py
-        if self.device:
-            log_info("Controller device already found, starting input loop.")
+        # Check if path was already found
+        if self.device_path:
+            log_info("Controller device path already set, starting input loop.")
             return self._start_input_thread()
 
         # If evdev is not available, cannot proceed
@@ -437,25 +446,13 @@ class PS4Controller:
                  return True # Indicate success (in web-only mode)
 
         # If controller was found by find_controller() call within start()
-        log_info(f"Controller {self.device.name} found successfully during start sequence.")
+        log_info(f"Controller path {self.device_path} found successfully during start sequence.")
         return self._start_input_thread()
 
     def _start_input_thread(self):
-        # --- Prioritize 'inputs' library if available --- 
-        # if INPUTS_AVAILABLE:
-        #      target_loop = self._input_loop_inputs
-        #      log_info("Using 'inputs' library for controller.")
-        # elif EVDEV_AVAILABLE and self.device:
-        #      target_loop = self._input_loop # Keep the evdev one as fallback
-        #      log_info("Using 'evdev' library for controller.")
-        # else:
-        #      log_error("No suitable controller library (inputs or evdev) available or device not found.")
-        #      self.web_only_mode = True
-        #      return False # Cannot start input thread
-             
         # --- FORCE EVDEV LOOP --- # MODIFIED
-        if not (EVDEV_AVAILABLE and self.device):
-            log_error("Cannot start evdev input thread: Evdev not available or device not found.")
+        if not (EVDEV_AVAILABLE and self.device_path):
+            log_error("Cannot start evdev input thread: Evdev not available or device path not set.")
             self.web_only_mode = True
             return False
         target_loop = self._input_loop # ALWAYS use evdev loop
@@ -467,13 +464,10 @@ class PS4Controller:
             log_warning("Input thread already running.")
             return True
 
-        if not self.device:
-            log_error("Cannot start input thread, no device available.")
+        if not self.device_path:
+            log_error("Cannot start input thread, no device path available.")
             self.web_only_mode = True # Fallback to web-only
             return False
-
-        log_info("Controller found. Adding a short delay before starting input thread...")
-        time.sleep(2.0)
 
         self.stop_input.clear()
         self.input_thread = threading.Thread(target=target_loop) # Use selected loop
@@ -501,22 +495,15 @@ class PS4Controller:
             log_error(f"Error stopping PS4 controller input: {e}")
             return False
     
-    # --- Reverted to evdev with non-blocking read ---
     def _input_loop(self):
         """Input loop using evdev with non-blocking read."""
         log_info("Starting PS4 controller input loop (using evdev non-blocking).")
-        if not self.device:
-            log_error("Input loop (evdev) started without a valid controller device.")
+        if not self.device_path:
+            log_error("Input loop (evdev) started without a valid device path.")
             self.running = False
             return
 
-        # Ensure we have the correct device path if the object was recreated
-        try:
-             device_path = self.device.path
-        except Exception:
-             log_error("Could not get device path from self.device.")
-             self.running = False
-             return
+        device_path = self.device_path
 
         local_device = None
         thread_name = threading.current_thread().name
@@ -527,17 +514,6 @@ class PS4Controller:
             # Re-open the device in the thread context
             local_device = InputDevice(device_path)
             log_info(f"Device {device_path} opened successfully for evdev.")
-
-            # --- GRAB DISABLED ---
-            # try:
-            #     log_info(f"Attempting to grab exclusive access to {device_path}...")
-            #     # local_device.grab() # Keep grab commented out
-            #     log_info(f"Grab() skipped for {device_path}.")
-            # except OSError as grab_err:
-            #     log_error(f"Permission error grabbing {device_path}: {grab_err}")
-            # except Exception as grab_ex:
-            #     log_warning(f"Unexpected error during grab() attempt: {grab_ex}")
-            # --- END GRAB DISABLED ---
 
             event_count = 0
             log_info(f"Entering non-blocking evdev read loop for {device_path}...")
@@ -572,14 +548,6 @@ class PS4Controller:
                 else:
                     log_debug(f"Unhandled EVDEV event type: {event.type}")
 
-
-                # Recalculate movement only after relevant axis/key events (excluding Sync)
-                # Modify process_axis_event to set a flag
-                # self.axes_changed_since_last_sync = False # Reset flag (handled in _process_movement)
-                # if processed and event.type == ecodes.EV_ABS:
-                #    self.axes_changed_since_last_sync = True
-                # We'll process movement on SYN events instead
-
         except BlockingIOError:
             # This shouldn't happen with read_one() but handle just in case
             log_warning(f"BlockingIOError caught unexpectedly during read_one() ({thread_name}).")
@@ -587,7 +555,7 @@ class PS4Controller:
         except OSError as e:
             # This usually means the controller disconnected
             log_error(f"Controller disconnected or read error in evdev loop ({thread_name}): {e}")
-            self.device = None # Mark as disconnected
+            self.device_path = None # Clear the path
             self.running = False # Ensure loop stops externally if thread dies
             # Attempt to trigger cleanup/reconnect logic if needed
         except Exception as e:
@@ -595,9 +563,6 @@ class PS4Controller:
         finally:
             log_info(f"Exiting PS4 controller evdev loop ({thread_name}).")
             if local_device:
-                # --- UNGRAB DISABLED ---
-                # try: ... ungrab logic ...
-                # --- END UNGRAB DISABLED ---
                 try:
                     if local_device.fileno() != -1:
                         log_debug(f"Attempting to close evdev device {device_path}")
@@ -741,91 +706,4 @@ class PS4Controller:
 # Create global PS4 controller instance
 ps4_controller = PS4Controller()
 # Add the flag needed for SYN event processing
-ps4_controller.axes_changed_since_last_sync = False
-
-# --- New Input Loop using 'inputs' library ---
-def _input_loop_inputs(self):
-    log_info("Starting PS4 controller input loop (using 'inputs' library).")
-    thread_name = threading.current_thread().name
-    while not self.stop_input.is_set():
-        try:
-            log_debug(f"[{thread_name}] Gamepads: {inputs.devices.gamepads}")
-            events = inputs.get_gamepad()
-            log_debug(f"[{thread_name}] Events: {events}")
-            for event in events:
-                if self.stop_input.is_set():
-                    break
-                self._process_inputs_event(event)
-        except inputs.UnpluggedError as e:
-            log_error(f"[{thread_name}] UnpluggedError: {e}, Gamepads: {inputs.devices.gamepads}")
-            self.device = None
-            self.running = False
-            break
-        except Exception as e:
-            log_error(f"[{thread_name}] Error: {e}")
-            time.sleep(1)
-
-    log_info(f"Exiting PS4 controller inputs loop ({thread_name}).")
-    self.running = False
-    log_info(f"PS4 controller input loop finished ({thread_name}).")
-    
-def _process_inputs_event(self, event):
-    """Process a single event from the 'inputs' library."""
-    processed = False
-    if event.ev_type == 'Key': # Button Event
-        button_name = self.inputs_button_map.get(event.code)
-        if button_name:
-            is_pressed = (event.state == 1)
-            self.buttons[button_name] = is_pressed
-            log_debug(f"INPUTS Button: {button_name} {'pressed' if is_pressed else 'released'}")
-            
-            # Trigger actions (same logic as before for now)
-            if is_pressed:
-                action = None
-                if button_name == 'x': action = ControlAction.STOP
-                elif button_name == 'triangle': action = ControlAction.TAKE_PHOTO
-                elif button_name == 'circle': action = ControlAction.TOGGLE_KNIGHT_RIDER
-                elif button_name == 'square': action = ControlAction.TOGGLE_PARTY_MODE
-                 
-                if action:
-                     if control_manager.current_mode == ControlMode.PS4:
-                          control_manager.execute_action(action, source="ps4")
-                     else:
-                          log_warning(f"PS4 action {action} ignored, current mode is {control_manager.current_mode}")
-            processed = True
-    elif event.ev_type == 'Absolute': # Axis Event (Sticks, Triggers, DPad)
-        axis_name = self.inputs_axis_map.get(event.code)
-        if axis_name:
-            scale = self.inputs_axis_scale.get(event.code, 1.0)
-            # Normalize axis value
-            if 'ABS_Z' in event.code or 'ABS_RZ' in event.code: # Triggers usually 0 to max
-                 value = event.state / scale
-            elif 'ABS_HAT' in event.code: # Dpad usually -1, 0, 1
-                 value = event.state 
-            else: # Sticks usually -max to +max
-                 value = event.state / scale
-                 
-            # Clamp value
-            value = max(-1.0, min(1.0, value)) if 'ABS_HAT' not in event.code else value
-            
-            # Update internal state only if changed significantly 
-            # (helps reduce noise for slightly jittery axes)
-            if abs(self.axes.get(axis_name, 0) - value) > 0.01:
-                self.axes[axis_name] = value
-                log_debug(f"INPUTS Axis: {axis_name} = {value:.2f} (raw: {event.state})")
-                processed = True
-    elif event.ev_type == 'Sync':
-         # Sync events indicate end of a burst of related events
-         # We might trigger movement processing here instead of after every axis event
-         # log_debug("Sync event received")
-         pass # Don't set processed=True for Sync
-    else:
-        # Log other event types if needed
-        log_debug(f"INPUTS Unhandled Event Type: {event.ev_type} Code: {event.code} State: {event.state}")
-
-    # Recalculate movement if a relevant event was processed
-    if processed and event.ev_type == 'Absolute': # Only update movement on axis changes
-        self._process_movement()
-
-# Create global PS4 controller instance
-ps4_controller = PS4Controller() 
+ps4_controller.axes_changed_since_last_sync = False 
