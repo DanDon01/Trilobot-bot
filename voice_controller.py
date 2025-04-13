@@ -39,9 +39,9 @@ except Exception as e_gen:
 
 try:
     from elevenlabs import generate, save, set_api_key, voices, Voice
-    # from elevenlabs.api import History # History might not be needed directly, keep it simpler
+    # from elevenlabs.api import History # Keep commented for now, might be part of the issue
     ELEVENLABS_AVAILABLE = True
-    logger.info("Successfully imported ElevenLabs.")
+    logger.info("Successfully imported ElevenLabs core functions.") # Adjusted log message
 except ImportError as e_imp:
     # Expected error if package is missing
     logger.warning(f"ImportError for ElevenLabs: {e_imp}. Voice synthesis disabled.")

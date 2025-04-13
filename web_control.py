@@ -14,7 +14,7 @@ import logging
 from threading import Condition
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, state_tracker
+from debugging import log_info, log_error, log_warning, state_tracker, log_debug
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 from camera_processor import camera_processor
@@ -271,6 +271,8 @@ def stream():
     """Video streaming route."""
     def generate():
         """Generator function for video streaming."""
+        from debugging import log_debug
+        
         log_info("Starting camera stream generation.")
         stream_start_time = time.time()
         frame_count = 0

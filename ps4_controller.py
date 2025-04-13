@@ -438,22 +438,35 @@ class PS4Controller:
             return
 
         try:
+            log_debug(f"Attempting to read events from device: {self.device.name} ({self.device.path})")
+            event_count = 0
             for event in self.device.read_loop():
+                log_debug(f"--- Event received in read_loop (Count: {event_count + 1}) ---")
+                event_count += 1
                 # Log raw event data for debugging
-                log_debug(f"Raw event: type={event.type}, code={event.code}, value={event.value}")
+                log_debug(f"Event {event_count}: type={event.type}, code={event.code}, value={event.value}")
                 
                 if self.stop_input.is_set():
                     log_info("Stop signal received, exiting input loop.")
                     break
                 
+                # --- Event Processing Start ---
+                processed = False # Flag to track if event was handled
                 if event.type == ecodes.EV_KEY:
                     self._process_button_event(event)
+                    processed = True
                 elif event.type == ecodes.EV_ABS:
                     self._process_axis_event(event)
+                    processed = True
                 
                 # Recalculate movement after any relevant event
-                if event.type in [ecodes.EV_KEY, ecodes.EV_ABS]:
+                if processed:
                     self._process_movement()
+                # --- Event Processing End ---
+                    
+            # Log if the loop finishes without stop signal (e.g., device disconnects)
+            if not self.stop_input.is_set():
+                 log_warning(f"Event loop for {self.device.name} finished unexpectedly after {event_count} events.")
                     
         except OSError as e:
             log_error(f"Controller disconnected or read error: {e}")
@@ -465,7 +478,7 @@ class PS4Controller:
                  # Implement reconnection logic or signal main thread
                  pass
         except Exception as e:
-            log_error(f"Unexpected error in input loop: {e}")
+            log_error(f"Unexpected error in input loop: {e}", exc_info=True)
             self.running = False
         finally:
             log_info("PS4 controller input loop finished.")
