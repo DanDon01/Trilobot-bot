@@ -447,8 +447,8 @@ class PS4Controller:
             
             try:
                 log_info(f"Attempting to grab exclusive access to {device_path}...")
-                local_device.grab()
-                log_info(f"Successfully grabbed {device_path}.")
+                # local_device.grab() # <-- Comment out grab
+                log_info(f"Successfully grabbed {device_path}.") # <-- Log message might be misleading now
             except OSError as grab_err:
                 if 'Operation not permitted' in str(grab_err):
                     log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
@@ -502,7 +502,7 @@ class PS4Controller:
                     # Check if device is still open before ungrabbing
                     if local_device.fileno() != -1: 
                         log_debug(f"Attempting to ungrab {device_path}")
-                        local_device.ungrab()
+                        # local_device.ungrab() # <-- Comment out ungrab
                     else:
                         log_debug(f"Device {device_path} already closed, skipping ungrab.")
                 except Exception as ungrab_err:
