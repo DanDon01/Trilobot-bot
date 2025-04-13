@@ -589,6 +589,7 @@ class PS4Controller:
 
     def _process_movement(self):
         """Process movement based on joystick positions (uses self.axes)"""
+        log_debug("--- ENTERED _process_movement ---")
         # Tank drive mode - left stick controls left track, right stick controls right track
         # Get current values, default to 0 if not yet set
         left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis so positive is forward
