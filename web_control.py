@@ -161,6 +161,7 @@ def start_light_show(effect_function):
 @app.route('/button/<button_name>/<action>')
 def handle_button(button_name, action):
     """Handle button presses from web interface"""
+    print(f"DEBUG: handle_button entered with: button={button_name}, action={action}") 
     log_info(f"Button press received: {button_name} - {action} (Web)")
     
     try:

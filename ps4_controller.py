@@ -430,55 +430,72 @@ class PS4Controller:
             return False
     
     def _input_loop(self):
-        """Read and process controller events"""
-        log_info("Starting PS4 controller input loop.")
+        """Read and process controller events using non-blocking read_one()"""
+        log_info("Starting PS4 controller input loop (non-blocking read_one)." )
         if not self.device:
             log_error("Input loop started without a valid controller device.")
             self.running = False
             return
 
         try:
-            log_debug(f"Attempting to read events from device: {self.device.name} ({self.device.path})")
+            log_info(f"Entering non-blocking read loop for {self.device.path}...")
             event_count = 0
-            for event in self.device.read_loop():
-                log_debug(f"--- Event received in read_loop (Count: {event_count + 1}) ---")
-                event_count += 1
-                # Log raw event data for debugging
-                log_debug(f"Event {event_count}: type={event.type}, code={event.code}, value={event.value}")
+            last_event_time = time.time()
+            no_event_counter = 0
+
+            while not self.stop_input.is_set():
+                event = self.device.read_one() # Non-blocking read
                 
-                if self.stop_input.is_set():
-                    log_info("Stop signal received, exiting input loop.")
-                    break
+                if event is None:
+                    # No event available right now
+                    no_event_counter += 1
+                    if no_event_counter > 100000: # Log approx every second if idle
+                         log_debug("No PS4 events read, looping...")
+                         no_event_counter = 0
+                    time.sleep(0.01) # Small sleep to prevent busy-waiting
+                    continue 
                 
-                # --- Event Processing Start ---
-                processed = False # Flag to track if event was handled
-                if event.type == ecodes.EV_KEY:
-                    self._process_button_event(event)
-                    processed = True
-                elif event.type == ecodes.EV_ABS:
-                    self._process_axis_event(event)
-                    processed = True
-                
-                # Recalculate movement after any relevant event
-                if processed:
-                    self._process_movement()
-                # --- Event Processing End ---
+                # If we reach here, an event was received
+                no_event_counter = 0 # Reset idle counter
+                last_event_time = time.time()
+                log_debug(f"--- Event received via read_one (Count: {event_count + 1}) ---") 
+
+                try:
+                    # --- Event Processing Start ---
+                    event_count += 1
+                    log_debug(f"Event {event_count}: type={event.type}, code={event.code}, value={event.value}") 
                     
-            # Log if the loop finishes without stop signal (e.g., device disconnects)
-            if not self.stop_input.is_set():
-                 log_warning(f"Event loop for {self.device.name} finished unexpectedly after {event_count} events.")
+                    processed = False # Flag to track if event was handled
+                    if event.type == ecodes.EV_KEY:
+                        self._process_button_event(event)
+                        processed = True
+                    elif event.type == ecodes.EV_ABS:
+                        self._process_axis_event(event)
+                        processed = True
+                    
+                    # Recalculate movement after any relevant event
+                    if processed:
+                        self._process_movement()
+                    # --- Event Processing End ---
+                except Exception as inner_e:
+                    # Log errors happening *during* event processing
+                    log_error(f"Error processing event {event_count}: {inner_e}", exc_info=True)
+
+            # Log loop exit reason
+            if self.stop_input.is_set():
+                log_info("Input loop stopped normally by stop signal.")
+            else:
+                log_warning(f"Input loop stopped unexpectedly.")
                     
         except OSError as e:
             log_error(f"Controller disconnected or read error: {e}")
-            self.device = None # Mark device as unavailable
+            self.device = None 
             self.running = False
-            # Optionally, trigger auto-reconnect here
             if config.get("controller", "auto_reconnect"):
                  log_info("Attempting to reconnect controller...")
-                 # Implement reconnection logic or signal main thread
                  pass
         except Exception as e:
-            log_error(f"Unexpected error in input loop: {e}", exc_info=True)
+            log_error(f"Unexpected error in input loop (outer try): {e}", exc_info=True) 
             self.running = False
         finally:
             log_info("PS4 controller input loop finished.")

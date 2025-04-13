@@ -38,15 +38,16 @@ except Exception as e_gen:
     logger.error(f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.", exc_info=True)
 
 try:
-    from elevenlabs import generate, save, set_api_key, voices, Voice
-    # from elevenlabs.api import History # Keep commented for now, might be part of the issue
+    # Try importing specific function first
+    from elevenlabs import generate 
+    # Then other potentially needed parts
+    from elevenlabs import save, set_api_key, voices, Voice 
+    # from elevenlabs.api import History # Keep commented
     ELEVENLABS_AVAILABLE = True
-    logger.info("Successfully imported ElevenLabs core functions.") # Adjusted log message
+    logger.info("Successfully imported ElevenLabs functions.")
 except ImportError as e_imp:
-    # Expected error if package is missing
-    logger.warning(f"ImportError for ElevenLabs: {e_imp}. Voice synthesis disabled.")
+    logger.warning(f"ImportError for ElevenLabs: {e_imp}. Could be missing package or sub-module. Voice synthesis disabled.")
 except Exception as e_gen:
-    # Catch other errors during import
     logger.error(f"FAILED to import ElevenLabs due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
 
 class VoiceController:
@@ -196,24 +197,32 @@ class VoiceController:
         
         # If not in cache, generate it (if possible)
         if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE:
-            try:
-                # Get the voice name and ID from config
-                voice_name = config.get("voice", "elevenlabs_voice_id")
-                voice_id = None
-                
-                # Look up the voice ID from the voices dictionary
-                voices_dict = config.get("voice", "elevenlabs_voices")
-                if voice_name in voices_dict:
-                    voice_id = voices_dict[voice_name]
-                else:
-                    # Fallback to the name as the ID directly if not found in mapping
-                    voice_id = voice_name
+            api_key = config.get("voice", "elevenlabs_api_key")
+            if not api_key:
+                log_warning("No ElevenLabs API key configured, cannot generate new audio.")
+                # Fall through to check if file exists anyway (might have been cached previously)
+            else:
+                try:
+                    # Get the voice name and ID from config
+                    voice_name = config.get("voice", "elevenlabs_voice_id")
+                    voice_id = None
                     
-                log_debug(f"Using ElevenLabs voice: {voice_name} (ID: {voice_id})")
-                
-                # Generate audio with ElevenLabs
-                api_key = config.get("voice", "elevenlabs_api_key")
-                if api_key:
+                    # Look up the voice ID from the voices dictionary
+                    voices_dict = config.get("voice", "elevenlabs_voices")
+                    if isinstance(voices_dict, dict) and voice_name in voices_dict:
+                        voice_id = voices_dict[voice_name]
+                    else:
+                        # Fallback to the name as the ID directly if not found in mapping
+                        voice_id = voice_name
+                        
+                    log_debug(f"Using ElevenLabs voice: {voice_name} (ID: {voice_id})")
+                    
+                    # Ensure generate is imported before calling
+                    # (The import happens globally, but this check adds safety)
+                    # We rely on the global import succeeding partially for this to work
+                    from elevenlabs import generate, Voice # Re-import locally just in case? Risky.
+                                                          # Better: Rely on global ELEVENLABS_AVAILABLE flag check above
+                    
                     audio = generate(
                         text=text,
                         voice=Voice(voice_id=voice_id),
@@ -223,17 +232,22 @@ class VoiceController:
                     with open(cache_file, "wb") as f:
                         f.write(audio)
                     log_debug(f"Generated TTS audio and saved to {cache_file}")
-                else:
-                    log_warning("No ElevenLabs API key configured, cannot generate audio")
-            except Exception as e:
-                log_error(f"Failed to generate TTS for: {text} - {e}")
-                return
-        
-        # If the file exists now, play it
+
+                except NameError as ne:
+                    # This specifically catches if 'generate' wasn't imported successfully
+                    log_error(f"ElevenLabs 'generate' function not available despite check: {ne}")
+                except Exception as e:
+                    log_error(f"Failed to generate TTS for: {text} - {e}")
+                    # Don't return here, still try to play if file exists
+        elif not os.path.exists(cache_file):
+            log_warning(f"TTS generation skipped: ElevenLabs module not available (ELEVENLABS_AVAILABLE={ELEVENLABS_AVAILABLE}).")
+
+        # If the file exists now (either cached or just generated), play it
         if os.path.exists(cache_file):
             self._play_audio(cache_file)
         else:
-            log_warning(f"No TTS cache file available for: {text}")
+            # This message now covers cases where generation was skipped or failed
+            log_warning(f"No TTS cache file found or generated for: {text} (Cache Key: {cache_key})")
             
     def _play_audio(self, file_path):
         """Play the audio file at the given path"""
