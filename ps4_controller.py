@@ -464,91 +464,63 @@ class PS4Controller:
             self.running = False
             return
 
+        # local_device = None # Use context manager instead
         device_path = self.device_path
 
-        local_device = None
         thread_name = threading.current_thread().name
         log_info(f"Input thread '{thread_name}' started for {device_path}.")
 
         try:
-            log_info(f"Attempting to open device {device_path} for evdev loop...")
-            # Re-open the device in the thread context
-            local_device = InputDevice(device_path)
-            log_info(f"Device {device_path} opened successfully for evdev.")
+            log_info(f"Attempting to open device {device_path} with context manager...")
+            with InputDevice(device_path) as local_device:
+                log_info(f"Device {device_path} opened successfully via context manager.")
+                log_info(f"Entering non-blocking evdev read loop for {device_path}...")
+                event_count = 0
 
-            event_count = 0
-            log_info(f"Entering blocking evdev read_loop() for {device_path}...")
+                while not self.stop_input.is_set():
+                    event = local_device.read_one() # Use non-blocking read
+                    if event is None:
+                        time.sleep(0.01)
+                        continue
 
-            # --- Use blocking read_loop() instead of read_one() ---
-            # while not self.stop_input.is_set():
-            #     event = local_device.read_one()
-            #     if event is None:
-            #         # No event available, sleep briefly and check stop flag
-            #         time.sleep(0.01)
-            #         continue
-            for event in local_device.read_loop():
-                # Check stop condition *inside* the loop
-                if self.stop_input.is_set():
-                    log_info(f"Stop signal received during read_loop ({thread_name}), exiting loop.")
-                    break
+                    # If we reach here, an event was received
+                    event_count += 1
+                    log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+                    log_debug(f"--- Checking event type value: {event.type} (type: {type(event.type)}) ---")
+                    
+                    processed = False
+                    # --- Use integer literals for type checking --- 
+                    if event.type == 1: # KEY
+                        log_debug(f"--- Event type matched 1 (EV_KEY) ---")
+                        self._process_button_event(event) 
+                        processed = True
+                    elif event.type == 3: # ABS
+                        log_debug(f"--- Event type matched 3 (EV_ABS) ---")
+                        self._process_axis_event(event)   # Call restored processor
+                        processed = True
+                        # --- REMOVED direct movement trigger --- 
+                    elif event.type == 0: # SYN
+                        log_debug(f"--- Event type matched 0 (EV_SYN) ---")
+                        log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
+                        # RE-ENABLE SYN-based movement trigger
+                        if self.axes_changed_since_last_sync:
+                             log_debug("--- Triggering movement check after SYN event ---")
+                             self._process_movement() # Call restored movement
+                             self.axes_changed_since_last_sync = False # Reset flag
+                        processed = False 
+                    else:
+                        log_debug(f"--- Event type UNHANDLED: {event.type} ---") 
 
-                # If we reach here, an event was received
-                event_count += 1
-                # --- LOG ALL EVENTS --- 
-                log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
-                log_debug(f"--- Checking event type value: {event.type} (type: {type(event.type)}) ---")
-                
-                processed = False
-                # --- Use integer literals for type checking --- # MODIFIED
-                if event.type == 1: # Was ecodes.EV_KEY
-                    log_debug(f"--- Event type matched 1 (EV_KEY) ---") # MODIFIED
-                    self._process_button_event(event) 
-                    processed = True
-                elif event.type == 3: # Was ecodes.EV_ABS
-                    log_debug(f"--- Event type matched 3 (EV_ABS) ---") # MODIFIED
-                    self._process_axis_event(event)   # Call simplified processor
-                    processed = True
-                    # --- REMOVE direct movement trigger --- 
-                    # log_debug("--- Triggering movement check after ABS event ---") 
-                    # self._process_movement() 
-                elif event.type == 0: # Was ecodes.EV_SYN
-                    log_debug(f"--- Event type matched 0 (EV_SYN) ---") # MODIFIED
-                    log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # --- RE-ENABLE SYN-based movement trigger ---
-                    if self.axes_changed_since_last_sync:
-                         log_debug("--- Triggering movement check after SYN event ---") # ADDED
-                         self._process_movement()
-                         self.axes_changed_since_last_sync = False
-                    processed = False # Don't process SYN further
-                else:
-                    log_debug(f"--- Event type UNHANDLED: {event.type} ---")
-                # --- End processing ---
-
-        except BlockingIOError:
-            # This might happen if read_loop is interrupted strangely
-            log_warning(f"BlockingIOError caught during read_loop ({thread_name}).")
-            # time.sleep(0.05) # No sleep needed for read_loop
         except OSError as e:
-            # This usually means the controller disconnected
             log_error(f"Controller disconnected or read error in evdev loop ({thread_name}): {e}")
-            self.device_path = None # Clear the path
-            self.running = False # Ensure loop stops externally if thread dies
-            # Attempt to trigger cleanup/reconnect logic if needed
+            self.device_path = None 
+            self.running = False 
         except Exception as e:
-            # Use standard logger here to include traceback info
             logger.error(f"Unexpected error in evdev input loop ({thread_name}): {e}", exc_info=True)
         finally:
-            log_info(f"Exiting PS4 controller evdev loop ({thread_name}).")
-            if local_device:
-                try:
-                    if local_device.fileno() != -1:
-                        log_debug(f"Attempting to close evdev device {device_path}")
-                        local_device.close()
-                    else:
-                        log_debug(f"Evdev device {device_path} already closed.")
-                except Exception as close_err:
-                    log_warning(f"Error closing evdev device {device_path}: {close_err}")
-            self.running = False # Ensure state reflects loop stop
+            # Context manager handles closing
+            log_info(f"Exiting PS4 controller evdev loop ({thread_name}) (context manager handled close).")
+            self.running = False 
             log_info(f"PS4 controller evdev input loop finished ({thread_name}).")
 
     def _process_button_event(self, event):
