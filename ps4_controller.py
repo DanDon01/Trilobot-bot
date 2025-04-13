@@ -442,17 +442,26 @@ class PS4Controller:
 
     def _start_input_thread(self):
         # --- Prioritize 'inputs' library if available --- 
-        if INPUTS_AVAILABLE:
-             target_loop = self._input_loop_inputs
-             log_info("Using 'inputs' library for controller.")
-        elif EVDEV_AVAILABLE and self.device:
-             target_loop = self._input_loop # Keep the evdev one as fallback
-             log_info("Using 'evdev' library for controller.")
-        else:
-             log_error("No suitable controller library (inputs or evdev) available or device not found.")
-             self.web_only_mode = True
-             return False # Cannot start input thread
+        # if INPUTS_AVAILABLE:
+        #      target_loop = self._input_loop_inputs
+        #      log_info("Using 'inputs' library for controller.")
+        # elif EVDEV_AVAILABLE and self.device:
+        #      target_loop = self._input_loop # Keep the evdev one as fallback
+        #      log_info("Using 'evdev' library for controller.")
+        # else:
+        #      log_error("No suitable controller library (inputs or evdev) available or device not found.")
+        #      self.web_only_mode = True
+        #      return False # Cannot start input thread
              
+        # --- FORCE EVDEV LOOP --- # MODIFIED
+        if not (EVDEV_AVAILABLE and self.device):
+            log_error("Cannot start evdev input thread: Evdev not available or device not found.")
+            self.web_only_mode = True
+            return False
+        target_loop = self._input_loop # ALWAYS use evdev loop
+        log_info("Using 'evdev' library for controller (forced).") # MODIFIED
+        # --- END FORCE EVDEV LOOP --- 
+
         """Starts the background thread for reading input"""
         if self.running:
             log_warning("Input thread already running.")
