@@ -170,47 +170,93 @@ class CameraProcessor:
             return None
             
         try:
+            # Use absolute path for captures directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filepath = os.path.join(self.capture_dir, f"photo_{timestamp}.jpg")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            capture_dir_abs = os.path.join(script_dir, self.capture_dir)
+            
+            # Ensure the capture directory exists
+            if not os.path.exists(capture_dir_abs):
+                log_info(f"Creating capture directory at absolute path: {capture_dir_abs}")
+                os.makedirs(capture_dir_abs, exist_ok=True)
+                
+            filepath = os.path.join(capture_dir_abs, f"photo_{timestamp}.jpg")
             
             # More detailed logging
             log_info(f"Photo capture requested. Path: {filepath}")
-            log_info(f"Capture directory exists: {os.path.exists(self.capture_dir)}")
             
-            # Ensure the capture directory is accessible
-            if not os.path.exists(self.capture_dir):
-                log_info(f"Creating capture directory: {self.capture_dir}")
-                os.makedirs(self.capture_dir, exist_ok=True)
+            # Try main capture method first
+            capture_success = False
             
             # Capture image
             log_info("Stopping recording to take photo...")
             was_recording = self.running
+            
             if was_recording:
-                self.camera.stop_recording()
-            
-            # Capture and save directly to file
-            log_info(f"Capturing photo to {filepath}...")
-            self.camera.capture_file(filepath)
-            
-            # Verify file was created
-            if os.path.exists(filepath):
-                log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
-            else:
-                log_error(f"Photo file was not created at {filepath}")
-            
-            # Restart recording if it was recording before
-            if was_recording:
-                log_info("Restarting recording...")
                 try:
+                    self.camera.stop_recording()
+                    # Capture and save directly to file
+                    log_info(f"Capturing photo directly to {filepath}...")
+                    self.camera.capture_file(filepath)
+                    capture_success = os.path.exists(filepath) and os.path.getsize(filepath) > 0
+                    
+                    if capture_success:
+                        log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
+                    else:
+                        log_warning(f"Direct capture appeared to succeed but file is missing or empty")
+                        
+                except Exception as direct_capture_error:
+                    log_error(f"Error during direct capture: {direct_capture_error}")
+                    
+                # Always restart recording
+                try:
+                    log_info("Restarting recording...")
                     encoder = MJPEGEncoder(bitrate=8000000)
                     self.camera.start_recording(encoder, FileOutput(self.output))
                     self.running = True
                 except Exception as restart_error:
                     log_error(f"Failed to restart recording: {restart_error}")
                     self.running = False
+            else:
+                try:
+                    # If not recording, just do a direct capture
+                    log_info(f"Direct capture (not recording) to {filepath}...")
+                    self.camera.capture_file(filepath)
+                    capture_success = os.path.exists(filepath) and os.path.getsize(filepath) > 0
+                    
+                    if capture_success:
+                        log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
+                    else:
+                        log_warning(f"Direct capture appeared to succeed but file is missing or empty")
+                except Exception as direct_capture_error:
+                    log_error(f"Error during direct capture: {direct_capture_error}")
+                
+            # If direct capture failed, try to capture from stream as fallback
+            if not capture_success:
+                log_warning("Direct capture failed, attempting fallback method using current stream frame")
+                if self.output and self.output.frame:
+                    try:
+                        log_info("Using current stream frame as fallback...")
+                        with open(filepath, 'wb') as f:
+                            f.write(self.output.frame)
+                        
+                        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                            log_info(f"Fallback capture successful: {os.path.getsize(filepath)} bytes")
+                            capture_success = True
+                        else:
+                            log_error("Fallback capture failed - file empty or missing")
+                    except Exception as fallback_error:
+                        log_error(f"Error during fallback capture: {fallback_error}")
+                else:
+                    log_error("Fallback capture failed - no current frame available")
             
-            log_info(f"Photo captured: {filepath}")
-            return filepath
+            if capture_success:
+                log_info(f"Photo captured successfully: {filepath}")
+                return filepath
+            else:
+                log_error("All photo capture methods failed")
+                return None
+                
         except Exception as e:
             error_msg = f"Error taking photo: {str(e)}"
             log_error(error_msg)
@@ -218,15 +264,15 @@ class CameraProcessor:
             import traceback
             log_error(f"Photo capture error stack trace: {traceback.format_exc()}")
             
-            # Try to restart recording if it failed
-            try:
-                log_info("Attempting to restart recording after error...")
-                encoder = MJPEGEncoder(bitrate=8000000)
-                self.camera.start_recording(encoder, FileOutput(self.output))
-                self.running = True
-            except Exception as restart_error:
-                log_error(f"Failed to restart recording: {restart_error}")
-                self.running = False
+            # Try to restart recording if it was active before
+            if self.running:
+                try:
+                    log_info("Attempting to restart recording after error...")
+                    encoder = MJPEGEncoder(bitrate=8000000)
+                    self.camera.start_recording(encoder, FileOutput(self.output))
+                except Exception as restart_error:
+                    log_error(f"Failed to restart recording: {restart_error}")
+                    self.running = False
                 
             return None
     
