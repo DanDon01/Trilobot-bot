@@ -44,8 +44,12 @@ try:
     logger.info("Successfully imported ElevenLabs client.")
 except ImportError as e_imp:
     logger.warning(f"ImportError for ElevenLabs client: {e_imp}. Could be missing package. Voice synthesis disabled.")
+    # Do not modify global ELEVENLABS_AVAILABLE here
+    # self.eleven_client will remain None, which prevents usage
 except Exception as e_gen:
     logger.error(f"FAILED to import ElevenLabs client due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
+    # Do not modify global ELEVENLABS_AVAILABLE here
+    # self.eleven_client will remain None, which prevents usage
 
 class VoiceController:
     """Controller for voice recognition and synthesis"""
@@ -122,7 +126,7 @@ class VoiceController:
         
         # *** Initialize ElevenLabs client ***
         self.eleven_client = None
-        if ELEVENLABS_AVAILABLE:
+        if ELEVENLABS_AVAILABLE: # Check if import succeeded globally
             api_key = config.get("voice", "elevenlabs_api_key")
             if api_key:
                 try:
@@ -133,10 +137,12 @@ class VoiceController:
                     # log_debug(f"Available ElevenLabs voices: {len(voices_response.voices)}")
                 except Exception as e:
                     log_error(f"Failed to initialize ElevenLabs client: {e}")
-                    ELEVENLABS_AVAILABLE = False # Mark as unavailable if client init fails
+                    # Do not modify global ELEVENLABS_AVAILABLE here
+                    # self.eleven_client will remain None, which prevents usage
             else:
-                log_warning("ElevenLabs API key not found in configuration. TTS generation disabled.")
-                ELEVENLABS_AVAILABLE = False # Mark as unavailable if no key
+                log_warning("ElevenLabs API key not found in configuration. TTS generation will be disabled.")
+                # Do not modify global ELEVENLABS_AVAILABLE here
+                # self.eleven_client will remain None
         
         log_info("Voice Controller initialized")
         
