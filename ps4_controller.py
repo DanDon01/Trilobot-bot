@@ -579,7 +579,7 @@ class PS4Controller:
             # Update only if value has changed significantly
             current_val = self.axes.get(axis_name, 999)
             delta = abs(current_val - value)
-            threshold = 0.01
+            threshold = 0.001 # LOWERED threshold from 0.01
             has_changed = delta > threshold
             log_debug(f"Current val: {current_val:.4f}, Delta: {delta:.4f}, Changed: {has_changed}") # ADDED
             if has_changed:
