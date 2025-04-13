@@ -39,6 +39,7 @@ class PS4Controller:
         self.max_connection_attempts = 3
         self.bluetooth_connected = False
         self.web_only_mode = False
+        self.axes_changed_since_last_sync = False
         
         # Controller state
         self.buttons = {}
@@ -493,28 +494,36 @@ class PS4Controller:
                 event_count += 1
                 # --- LOG ALL EVENTS --- 
                 log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+                log_debug(f"--- Checking event type: {event.type} ---")
                 
                 # --- Re-enable processing --- # MODIFIED
                 processed = False
                 if event.type == ecodes.EV_KEY:
+                    log_debug(f"--- Event type matched EV_KEY ---")
                     # Log ALL ABS events first # REMOVE THIS INNER COMMENT
                     # log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
                     self._process_button_event(event) # Use the existing evdev processor
                     processed = True
                 elif event.type == ecodes.EV_ABS:
+                    log_debug(f"--- Event type matched EV_ABS ---")
                     # log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}") # Already logged above
                     self._process_axis_event(event)   # Use the existing evdev processor
                     processed = True
+                    # --- Try calling movement directly after axis processing ---
+                    log_debug("--- Triggering movement check after ABS event ---")
+                    self._process_movement() # ADDED
                 elif event.type == ecodes.EV_SYN:
+                    log_debug(f"--- Event type matched EV_SYN ---")
                     # Sync event often follows a burst of axis events
                     log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
                     # Trigger movement processing after sync if axes might have changed
-                    if self.axes_changed_since_last_sync: # Need to add this flag logic
-                         self._process_movement()
-                         self.axes_changed_since_last_sync = False
+                    # --- Temporarily disable SYN-based movement trigger ---
+                    # if self.axes_changed_since_last_sync: # Need to add this flag logic
+                    #      self._process_movement()
+                    #      self.axes_changed_since_last_sync = False
                     processed = False # Don't re-trigger movement below for Sync
                 else:
-                    log_debug(f"Unhandled EVDEV event type: {event.type}")
+                    log_debug(f"--- Event type UNHANDLED: {event.type} ---")
                 # --- End re-enable processing ---
 
         except BlockingIOError:
