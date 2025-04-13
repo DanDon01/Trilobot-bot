@@ -674,42 +674,27 @@ class PS4Controller:
             control_manager.robot.disable_motors()
             state_tracker.update_state('movement', 'stopped')
 
-    # --- New Input Loop using 'inputs' library --- 
+    # --- New Input Loop using 'inputs' library ---
     def _input_loop_inputs(self):
-        """Read and process controller events using the 'inputs' library."""
         log_info("Starting PS4 controller input loop (using 'inputs' library).")
         thread_name = threading.current_thread().name
-
         while not self.stop_input.is_set():
             try:
-                # get_gamepad() blocks until an event occurs
-                # It raises inputs.UnpluggedError if controller disconnects
-                log_debug(f"[{thread_name}] Waiting for events via inputs.get_gamepad()...")
+                log_debug(f"[{thread_name}] Gamepads: {inputs.devices.gamepads}")
                 events = inputs.get_gamepad()
-                log_debug(f"[{thread_name}] inputs.get_gamepad() returned. Events: {events}")
-
-                if not events:
-                    # Should not happen if blocking, but handle anyway
-                    time.sleep(0.01)
-                    continue
-
+                log_debug(f"[{thread_name}] Events: {events}")
                 for event in events:
-                    if self.stop_input.is_set(): # Check stop flag frequently
+                    if self.stop_input.is_set():
                         break
-                    
-                    log_debug(f"--- INPUTS Event Received --- Type: {event.ev_type}, Code: {event.code}, State: {event.state}")
                     self._process_inputs_event(event)
-
-            except inputs.UnpluggedError:
-                log_error(f"Controller disconnected (inputs.UnpluggedError in {thread_name})")
-                self.device = None # Mark as disconnected
+            except inputs.UnpluggedError as e:
+                log_error(f"[{thread_name}] UnpluggedError: {e}, Gamepads: {inputs.devices.gamepads}")
+                self.device = None
                 self.running = False
-                log_info("Input loop stopping due to disconnection.")
-                # Consider attempting reconnect here based on config
                 break
             except Exception as e:
-                log_error(f"Unexpected error in inputs loop ({thread_name}): {e}", exc_info=True)
-                time.sleep(1) # Avoid busy-looping on errors
+                log_error(f"[{thread_name}] Error: {e}")
+                time.sleep(1)
 
         log_info(f"Exiting PS4 controller inputs loop ({thread_name}).")
         self.running = False
