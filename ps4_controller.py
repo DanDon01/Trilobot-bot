@@ -570,6 +570,11 @@ class PS4Controller:
             self._process_axis_event(event)
         elif event.type == ecodes.EV_SYN:
             log_debug(f"PS4Controller: Sync event received")
+            # Process movement on sync events if axes have changed
+            if self.axes_changed_since_last_sync:
+                log_debug("PS4Controller: Processing movement after sync event")
+                self._process_movement()
+                self.axes_changed_since_last_sync = False
         else:
             log_debug(f"PS4Controller: Other event type: {event.type}")
 
@@ -678,59 +683,45 @@ class PS4Controller:
         if axis_name:
             # Convert raw values to normalized -1.0 to 1.0 range
             # PS4 controller: values are typically 0-255 (center 127/128) 
-            if event.code == 16: # D-pad X
-                if event.value == -1: self._simulate_button_event('dpad_left', True)
-                elif event.value == 1: self._simulate_button_event('dpad_right', True)
-                else: 
-                    self._simulate_button_event('dpad_left', False)
-                    self._simulate_button_event('dpad_right', False)
-                return # Don't process D-pad as analog
-            elif event.code == 17: # D-pad Y
-                if event.value == -1: self._simulate_button_event('dpad_up', True)
-                elif event.value == 1: self._simulate_button_event('dpad_down', True)
-                else: 
-                    self._simulate_button_event('dpad_up', False)
-                    self._simulate_button_event('dpad_down', False)
-                return # Don't process D-pad as analog
-                
-            raw_min, raw_max = 0, 255
-            raw_center = 128
+            # For this controller, values range from 0-255
+            raw_value = event.value
             
-            # Normalize to -1.0 to 1.0 range
-            if axis_name in ['left_x', 'left_y', 'right_x', 'right_y']:
-                # For sticks, we normalize around the center
-                if event.value < raw_center:
-                    value = -1.0 * (raw_center - event.value) / (raw_center - raw_min)
-                else:
-                    value = (event.value - raw_center) / (raw_max - raw_center)
+            # Different normalization based on axis type
+            if axis_name in ['left_x', 'right_x']:
+                # X-axis normalization (0=left, 255=right, 128=center)
+                normalized_value = (raw_value - 128) / 128.0
+            elif axis_name in ['left_y', 'right_y']:
+                # Y-axis normalization (0=up, 255=down, 128=center)
+                normalized_value = (raw_value - 128) / 128.0
+            elif axis_name in ['l2', 'r2']:
+                # Trigger normalization (0=release, 255=fully pressed)
+                normalized_value = raw_value / 255.0
+            else: 
+                # Default normalization for other axes
+                normalized_value = (raw_value - 128) / 128.0
                 
-                # Invert Y axes (up should be negative)
-                if axis_name in ['left_y', 'right_y']:
-                    value = -value
-            else:
-                # For triggers, we normalize from min to max
-                value = (event.value - raw_min) / (raw_max - raw_min)
+            # Apply deadzone and tracking
+            old_value = self.axes.get(axis_name, 0)
+            delta = abs(normalized_value - old_value)
+            significant_change = delta > 0.01 # Only report changes above this threshold
             
-            # Update only if value has changed significantly
-            current_val = self.axes.get(axis_name, 999)
-            delta = abs(current_val - value)
-            threshold = 0.001 # ENSURE Threshold is 0.001 - Very low to detect all changes
-            has_changed = delta > threshold
-            log_debug(f"Current val: {current_val:.4f}, Delta: {delta:.4f}, Changed: {has_changed}")
-            if has_changed:
-                 self.axes[axis_name] = value
-                 self.axes_changed_since_last_sync = True
-                 log_debug(f"Axis {axis_name} value updated to {value:.4f}")
-                 
-                 # For L2/R2 (triggers), we report significant changes 
-                 if axis_name in ['l2', 'r2'] and delta > 0.1:
-                     log_info(f"PS4 TRIGGER: {axis_name} = {value:.2f}")
-                 
-                 # For stick movements that exceed the deadzone
-                 if axis_name in ['left_x', 'left_y', 'right_x', 'right_y'] and abs(value) > self.deadzone:
-                     log_info(f"PS4 STICK: {axis_name} = {value:.2f}")
+            # Log raw value for debugging
+            log_debug(f"Current val: {old_value:.4f}, Delta: {delta:.4f}, Changed: {significant_change}")
+            
+            # Update stored value if changed significantly
+            if significant_change:
+                # Round to 4 decimal places to avoid micro-fluctuations
+                self.axes[axis_name] = round(normalized_value, 4)
+                log_debug(f"Axis {axis_name} value updated to {self.axes[axis_name]}")
+                
+                # Log at higher level for visibility during testing
+                log_info(f"PS4 STICK: {axis_name} = {self.axes[axis_name]:.2f}")
+                
+                # Set flag that we've processed an axis event and need to update movement on the next SYN
+                self.axes_changed_since_last_sync = True
         else:
-            log_debug(f"Unknown axis code: {event.code} with value: {event.value}")
+            # Log unknown axis codes to help diagnose mapping issues
+            log_warning(f"Unknown axis code: {event.code} with value: {event.value}")
 
     def _simulate_button_event(self, button_name, is_pressed):
         """Simulate a button event from D-pad or other sources"""
@@ -754,32 +745,43 @@ class PS4Controller:
                     control_manager.execute_action(action, source="ps4")
 
     def _process_movement(self):
-        """Process movement based on joystick positions - REFACTORED"""
-        log_debug("--- ENTERED _process_movement (Control Scheme Fixed) ---")
-        log_debug(f"Using deadzone: {self.deadzone}, max_speed: {self.max_speed}")
-
-        # Get stick positions - NOTE: y-axis is already inverted in _process_axis_event
-        # so up = negative, down = positive
-        left_y = self.axes.get('left_y', 0.0)  # Up/down movement (already inverted)
-        left_x = self.axes.get('left_x', 0.0)  # Left/right movement for steering
+        """Process stick and trigger values into movement commands"""
+        log_debug("Entered _process_movement")
+        # Safety check - ensure this isn't called when controller should be inactive
+        if not self.running or self.stop_input.is_set():
+            log_warning("_process_movement called when controller inactive.")
+            return
         
-        log_debug(f"Raw stick values: left_y: {left_y:.4f}, left_x: {left_x:.4f}")
-
-        # Apply deadzone to both axes
-        left_y = 0 if abs(left_y) < self.deadzone else left_y
-        left_x = 0 if abs(left_x) < self.deadzone else left_x
+        # First, ensure we have control
+        if control_manager.current_mode != ControlMode.PS4:
+            # Request control - only set once to avoid log spam
+            # (but this will fail if another source has explicitly taken control)
+            log_info("Setting control mode to PS4")
+            if control_manager.set_mode(ControlMode.PS4):
+                log_info("Successfully set control mode to PS4")
+            else:
+                log_warning("Failed to set control mode to PS4 - another source may have locked control")
+                return
         
-        log_debug(f"After deadzone: left_y: {left_y:.4f}, left_x: {left_x:.4f}")
-
-        # Invert Y axis AGAIN because our normalization in _process_axis_event has 
-        # up = negative, down = positive, but we want up = forward, down = backward
-        # This double inversion makes pushing up = forward
-        forward_speed = -left_y * self.max_speed
+        # Extract values, apply deadzone
+        left_x = self.axes.get('left_x', 0.0)
+        left_y = self.axes.get('left_y', 0.0)
+        right_x = self.axes.get('right_x', 0.0)
+        right_y = self.axes.get('right_y', 0.0)
         
-        # Calculate steering - left_x is negative for left, positive for right
-        turning_speed = left_x * self.max_speed * 0.7  # 70% of max speed for turning
+        # Apply deadzone to stick inputs (values below deadzone are treated as 0)
+        if abs(left_x) < self.deadzone: left_x = 0
+        if abs(left_y) < self.deadzone: left_y = 0
+        if abs(right_x) < self.deadzone: right_x = 0
+        if abs(right_y) < self.deadzone: right_y = 0
         
-        # Calculate final wheel speeds with differential steering
+        # Calculate movement: the left stick Y controls forward/backward
+        # Left stick X adds turning (differential steering)
+        forward_speed = -left_y  # Negative because up is negative in the raw values
+        turning_speed = left_x * 0.7  # Scale down turning a bit for better control
+        
+        # Calculate wheel speeds using differential drive model
+        # Forward + turning; negative turning rotates around left wheel
         final_left_speed = forward_speed - turning_speed  # Subtracting turning for left wheel
         final_right_speed = forward_speed + turning_speed  # Adding turning for right wheel
         
