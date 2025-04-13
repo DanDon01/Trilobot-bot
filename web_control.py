@@ -59,7 +59,7 @@ def index():
     hardware_status = {
         'camera': camera_processor.get_camera_status() if 'camera_processor' in globals() else {'available': False, 'error': 'Camera processor not initialized'},
         'controller': {'connected': ps4_controller.device is not None if 'ps4_controller' in globals() else False},
-        'trilobot': {'available': hasattr(control_manager, 'robot') and not isinstance(control_manager.robot, MockTrilobot) if 'control_manager' in globals() else False},
+        'trilobot': {'available': hasattr(control_manager, 'robot') and control_manager.robot is not None if 'control_manager' in globals() else False},
     }
     
     # Pass status information to the template
@@ -161,7 +161,7 @@ def start_light_show(effect_function):
 @app.route('/button/<button_name>/<action>')
 def handle_button(button_name, action):
     """Handle button presses from web interface"""
-    log_info(f"Button press received: {button_name} - {action}")
+    log_info(f"Button press received: {button_name} - {action} (Web)")
     
     try:
         is_active = (action == 'press')
@@ -183,7 +183,7 @@ def handle_button(button_name, action):
         elif button_name == 'circle':
             if is_active:
                 # Toggle Knight Rider effect
-                control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER)
+                control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="web")
                 if control_manager.knight_rider_active:
                     start_light_show(knight_rider_effect)
         elif button_name == 'cross':
@@ -208,7 +208,7 @@ def handle_button(button_name, action):
         elif button_name == 'square':
             if is_active:
                 # Toggle party mode
-                control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE)
+                control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="web")
                 if control_manager.party_mode_active:
                     start_light_show(party_mode_effect)
         
@@ -230,18 +230,20 @@ def handle_button(button_name, action):
 @app.route('/move/<direction>/<action>')
 def move(direction, action):
     """Handle movement commands from web interface"""
+    log_info(f"Movement command received: {direction} - {action} (Web)")
+    
     try:
         if action == 'start':
             if direction == 'forward':
-                control_manager.execute_action(ControlAction.MOVE_FORWARD)
+                control_manager.execute_action(ControlAction.MOVE_FORWARD, source="web")
             elif direction == 'backward':
-                control_manager.execute_action(ControlAction.MOVE_BACKWARD)
+                control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="web")
             elif direction == 'left':
-                control_manager.execute_action(ControlAction.TURN_LEFT)
+                control_manager.execute_action(ControlAction.TURN_LEFT, source="web")
             elif direction == 'right':
-                control_manager.execute_action(ControlAction.TURN_RIGHT)
+                control_manager.execute_action(ControlAction.TURN_RIGHT, source="web")
         elif action == 'stop':
-            control_manager.execute_action(ControlAction.STOP)
+            control_manager.execute_action(ControlAction.STOP, source="web")
             
         return jsonify({
             'status': 'success',
@@ -256,8 +258,9 @@ def move(direction, action):
 @app.route('/stop')
 def stop():
     """Stop all motors"""
+    log_info(f"Emergency stop received (Web)")
     try:
-        control_manager.execute_action(ControlAction.EMERGENCY_STOP)
+        control_manager.execute_action(ControlAction.EMERGENCY_STOP, source="web")
         return jsonify({'status': 'success', 'message': 'Motors stopped'})
     except Exception as e:
         log_error(f"Stop error: {e}")

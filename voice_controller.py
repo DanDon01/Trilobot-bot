@@ -29,15 +29,25 @@ ELEVENLABS_AVAILABLE = False
 try:
     import speech_recognition as sr
     SPEECH_RECOGNITION_AVAILABLE = True
-except ImportError:
-    logger.warning("SpeechRecognition module not available. Voice recognition disabled.")
+    logger.info("Successfully imported SpeechRecognition.")
+except ImportError as e_imp:
+    # This is the expected error if the package is just missing
+    logger.warning(f"ImportError for SpeechRecognition: {e_imp}. Voice recognition disabled.")
+except Exception as e_gen:
+    # This catches other errors during import (e.g., dependencies missing)
+    logger.error(f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.", exc_info=True)
 
 try:
     from elevenlabs import generate, save, set_api_key, voices, Voice
-    from elevenlabs.api import History
+    # from elevenlabs.api import History # History might not be needed directly, keep it simpler
     ELEVENLABS_AVAILABLE = True
-except ImportError:
-    logger.warning("ElevenLabs module not available. Voice synthesis disabled.")
+    logger.info("Successfully imported ElevenLabs.")
+except ImportError as e_imp:
+    # Expected error if package is missing
+    logger.warning(f"ImportError for ElevenLabs: {e_imp}. Voice synthesis disabled.")
+except Exception as e_gen:
+    # Catch other errors during import
+    logger.error(f"FAILED to import ElevenLabs due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
 
 class VoiceController:
     """Controller for voice recognition and synthesis"""
