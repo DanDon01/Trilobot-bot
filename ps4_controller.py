@@ -674,6 +674,8 @@ class PS4Controller:
                                       if hasattr(control_manager, 'robot') and control_manager.robot is not None:
                                           try: control_manager.robot.clear_underlighting()
                                           except: pass
+                                  # Skip the additional execute_action call below to avoid toggling twice
+                                  action = None
                               except Exception as e:
                                   log_error(f"Error toggling knight rider: {e}")
                           elif action == ControlAction.TOGGLE_PARTY_MODE:
@@ -694,6 +696,8 @@ class PS4Controller:
                                       if hasattr(control_manager, 'robot') and control_manager.robot is not None:
                                           try: control_manager.robot.clear_underlighting()
                                           except: pass
+                                  # Skip the additional execute_action call below to avoid toggling twice
+                                  action = None
                               except Exception as e:
                                   log_error(f"Error toggling party mode: {e}")
                           elif action == ControlAction.TAKE_PHOTO:
