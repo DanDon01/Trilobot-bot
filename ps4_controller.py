@@ -463,6 +463,9 @@ class PS4Controller:
             self.web_only_mode = True # Fallback to web-only
             return False
 
+        log_info("Controller found. Adding a short delay before starting input thread...")
+        time.sleep(2.0)
+
         self.stop_input.clear()
         self.input_thread = threading.Thread(target=target_loop) # Use selected loop
         self.input_thread.daemon = True
