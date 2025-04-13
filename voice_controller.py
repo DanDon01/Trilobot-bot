@@ -316,7 +316,7 @@ class VoiceController:
         log_info("Voice recognition loop started")
         active_listening = False # Flag to track if activation phrase was heard
         last_active_time = 0
-        timeout_duration = config.get("voice", "timeout_duration") or 10 # Correct way
+        timeout_duration = config.get("voice", "timeout_duration") or 10 # Removed fallback
 
         while not self.stop_recognition.is_set():
             log_debug("Listening for audio...")

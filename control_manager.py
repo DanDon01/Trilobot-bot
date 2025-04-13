@@ -329,6 +329,38 @@ class ControlManager:
 
         state_tracker.update_state('camera_mode', 'photo_taken')
 
+    def set_motor_speeds(self, left_speed: float, right_speed: float):
+        """Directly set motor speeds and update movement state."""
+        try:
+            # Apply clamping/limits if needed (e.g., based on max_speed)
+            left_speed = max(-self.max_speed, min(self.max_speed, left_speed))
+            right_speed = max(-self.max_speed, min(self.max_speed, right_speed))
+
+            log_debug(f"ControlManager: Setting speeds L={left_speed:.2f}, R={right_speed:.2f}")
+            self.robot.set_left_speed(left_speed)
+            self.robot.set_right_speed(right_speed)
+
+            # Update movement state based on speeds
+            if abs(left_speed) < 0.01 and abs(right_speed) < 0.01:
+                movement_state = 'stopped'
+            elif left_speed > 0 and right_speed > 0:
+                movement_state = 'forward'
+            elif left_speed < 0 and right_speed < 0:
+                movement_state = 'backward'
+            elif left_speed < right_speed:
+                movement_state = 'right' # Turning right
+            elif left_speed > right_speed:
+                movement_state = 'left' # Turning left
+            else:
+                movement_state = 'complex_turn' # Could be spinning in place
+
+            state_tracker.update_state('movement', movement_state)
+
+        except AttributeError:
+            log_error("Failed to set motor speeds: Robot object missing methods (set_left_speed/set_right_speed).")
+        except Exception as e:
+            log_error(f"Error setting motor speeds: {e}")
+
 # Create global control manager instance, passing the initialized tbot object
 # This line will only be reached if tbot was successfully initialized above
 control_manager = ControlManager(tbot) 
