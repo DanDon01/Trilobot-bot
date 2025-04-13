@@ -517,7 +517,8 @@ class PS4Controller:
             self.running = False # Ensure loop stops externally if thread dies
             # Attempt to trigger cleanup/reconnect logic if needed
         except Exception as e:
-            log_error(f"Unexpected error in evdev input loop ({thread_name}): {e}", exc_info=True)
+            # Use standard logger here to include traceback info
+            logger.error(f"Unexpected error in evdev input loop ({thread_name}): {e}", exc_info=True)
         finally:
             log_info(f"Exiting PS4 controller evdev loop ({thread_name}).")
             if local_device:
@@ -598,67 +599,36 @@ class PS4Controller:
         target_left_speed = left_y_deadzoned * self.max_speed
         target_right_speed = right_y_deadzoned * self.max_speed
 
-        # --- Get current actual speeds (assuming robot object has getter or we track them) ---
-        # Placeholder: Assume we can get current speeds. If not, we might skip acceleration.
-        current_left_speed = self.speeds.get("left", 0.0)
-        current_right_speed = self.speeds.get("right", 0.0)
-        # --- End Placeholder ---
-
-        # --- Simple Acceleration (Optional) ---
-        # Move current speed towards target speed by acceleration factor
-        # accel_factor = config.get("movement", "acceleration", fallback=1.0) # Get from config, default 1 (no accel)
-        # final_left_speed = current_left_speed + copysign(accel_factor * 0.1, target_left_speed - current_left_speed) # Example step
-        # final_right_speed = current_right_speed + copysign(accel_factor * 0.1, target_right_speed - current_right_speed) # Example step
-        # # Clamp speeds to target and max_speed limits
-        # final_left_speed = max(-self.max_speed, min(self.max_speed, final_left_speed))
-        # final_right_speed = max(-self.max_speed, min(self.max_speed, final_right_speed))
-        # # Refine clamping based on direction towards target
-        # if (target_left_speed >= current_left_speed and final_left_speed > target_left_speed) or \
-        #    (target_left_speed <= current_left_speed and final_left_speed < target_left_speed):
-        #      final_left_speed = target_left_speed
-        # if (target_right_speed >= current_right_speed and final_right_speed > target_right_speed) or \
-        #    (target_right_speed <= current_right_speed and final_right_speed < target_right_speed):
-        #      final_right_speed = target_right_speed
-        # --- End Simple Acceleration ---
-
-        # --- Use target speed directly (no acceleration) ---
+        # --- Use target speed directly ---
         final_left_speed = target_left_speed
         final_right_speed = target_right_speed
-        # --- End Direct Speed ---
 
-
-        # Set motor speeds only if they have changed significantly or if stopping
-        needs_update = False
-        if abs(final_left_speed - current_left_speed) > 0.01 or abs(final_right_speed - current_right_speed) > 0.01:
-             needs_update = True
-        elif final_left_speed == 0 and final_right_speed == 0 and (current_left_speed != 0 or current_right_speed != 0):
-             # Explicitly stop if sticks centered and motors were moving
-             needs_update = True
-
-        if needs_update:
-            log_debug(f"Updating motor speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
-            # Check if control mode is still PS4 before sending hardware commands
-            if control_manager.current_mode == ControlMode.PS4:
-                if final_left_speed == 0 and final_right_speed == 0:
-                    self.robot.disable_motors()
-                    movement_state = 'stopped'
-                else:
-                    self.robot.set_left_speed(final_left_speed)
-                    self.robot.set_right_speed(final_right_speed)
-                    # Determine movement state for logging/state tracking
-                    if final_left_speed > 0 and final_right_speed > 0: movement_state = 'forward'
-                    elif final_left_speed < 0 and final_right_speed < 0: movement_state = 'backward'
-                    elif abs(final_left_speed) < 0.1 and abs(final_right_speed) < 0.1: movement_state = 'stopped' # Catch near zero case
-                    elif final_left_speed < final_right_speed: movement_state = 'right' # Turning right: Left forward, Right back/slower
-                    elif final_left_speed > final_right_speed: movement_state = 'left'  # Turning left: Right forward, Left back/slower
-                    else: movement_state = 'complex_turn' # Both turning diff directions but not pure left/right
-
-                # Update internal speed tracking and state tracker
-                self.speeds["left"] = final_left_speed
-                self.speeds["right"] = final_right_speed
-                state_tracker.update_state('movement', movement_state)
+        # --- Simplified update logic ---
+        # Always update motors if control mode is PS4, let ControlManager handle state
+        # log_debug(f"Calculated speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
+        if control_manager.current_mode == ControlMode.PS4:
+            if abs(final_left_speed) < 0.01 and abs(final_right_speed) < 0.01:
+                # If speeds are effectively zero, disable motors
+                if state_tracker.get_state('movement') != 'stopped': # Avoid redundant calls
+                     log_debug("Sticks centered or near zero, disabling motors.")
+                     self.robot.disable_motors()
+                     state_tracker.update_state('movement', 'stopped')
             else:
-                 log_warning(f"Movement ignored, current mode is {control_manager.current_mode}")
+                # Speeds are non-zero, set them
+                log_debug(f"Updating motor speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
+                self.robot.set_left_speed(final_left_speed)
+                self.robot.set_right_speed(final_right_speed)
+                
+                # Determine movement state for logging/state tracking
+                if final_left_speed > 0 and final_right_speed > 0: movement_state = 'forward'
+                elif final_left_speed < 0 and final_right_speed < 0: movement_state = 'backward'
+                elif abs(final_left_speed) < 0.1 and abs(final_right_speed) < 0.1: movement_state = 'stopped' # Catch near zero case
+                elif final_left_speed < final_right_speed: movement_state = 'right' # Turning right: Left forward, Right back/slower
+                elif final_left_speed > final_right_speed: movement_state = 'left'  # Turning left: Right forward, Left back/slower
+                else: movement_state = 'complex_turn' # Both turning diff directions but not pure left/right
+                state_tracker.update_state('movement', movement_state)
+        # else:
+        #      log_warning(f"Movement ignored, current mode is {control_manager.current_mode}") # Already logged upstream potentially
 
 
 # Create global PS4 controller instance
