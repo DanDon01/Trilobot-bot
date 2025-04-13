@@ -498,7 +498,6 @@ class PS4Controller:
                 log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
                 log_debug(f"--- Checking event type value: {event.type} (type: {type(event.type)}) ---")
                 
-                # --- Re-enable processing --- # MODIFIED
                 processed = False
                 # --- Use integer literals for type checking --- # MODIFIED
                 if event.type == 1: # Was ecodes.EV_KEY
@@ -507,20 +506,23 @@ class PS4Controller:
                     processed = True
                 elif event.type == 3: # Was ecodes.EV_ABS
                     log_debug(f"--- Event type matched 3 (EV_ABS) ---") # MODIFIED
-                    self._process_axis_event(event)   
+                    self._process_axis_event(event)   # Call simplified processor
                     processed = True
-                    # --- Try calling movement directly after axis processing --- 
-                    log_debug("--- Triggering movement check after ABS event ---") 
-                    self._process_movement() 
+                    # --- REMOVE direct movement trigger --- 
+                    # log_debug("--- Triggering movement check after ABS event ---") 
+                    # self._process_movement() 
                 elif event.type == 0: # Was ecodes.EV_SYN
                     log_debug(f"--- Event type matched 0 (EV_SYN) ---") # MODIFIED
-                    # Sync event often follows a burst of axis events
                     log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # --- Temporarily disable SYN-based movement trigger ---
-                    processed = False # Don't re-trigger movement below for Sync
+                    # --- RE-ENABLE SYN-based movement trigger ---
+                    if self.axes_changed_since_last_sync:
+                         log_debug("--- Triggering movement check after SYN event ---") # ADDED
+                         self._process_movement()
+                         self.axes_changed_since_last_sync = False
+                    processed = False # Don't process SYN further
                 else:
                     log_debug(f"--- Event type UNHANDLED: {event.type} ---")
-                # --- End re-enable processing ---
+                # --- End processing ---
 
         except BlockingIOError:
             # This might happen if read_loop is interrupted strangely
@@ -577,23 +579,19 @@ class PS4Controller:
                           log_warning(f"PS4 action {action.name} ignored, current mode is {control_manager.current_mode}")
 
     def _process_axis_event(self, event):
-        """Process joystick/trigger events (evdev)"""
+        """Process joystick/trigger events (evdev) - RESTORED"""
         log_debug(f"--- ENTERED _process_axis_event --- Code: {event.code}")
-        # Check if axis code exists in our map
+        # --- Use original logic with axis_map and normalization --- 
         axis_name = self.axis_map.get(event.code)
         if axis_name:
             # Normalize axis value from 0-255 (triggers) or ~-32k to +32k (sticks) to -1 to 1 or 0 to 1
             if 'l2' in axis_name or 'r2' in axis_name: # Check includes button and analog trigger
-                # Triggers 0 to 255 -> 0 to 1
                 value = event.value / 255.0
             elif 'dpad' in axis_name:
-                 # Dpad -1, 0, 1 - Keep as is
                  value = float(event.value) # Ensure float
             else:
                 # Sticks roughly -32768 to 32767 -> -1 to 1
-                # Use 32768 for normalization to be safe
                 value = event.value / 32768.0
-                # Clamp value to ensure it's within -1 to 1 range
                 value = max(-1.0, min(1.0, value))
 
             # Update only if value has changed significantly
@@ -602,53 +600,49 @@ class PS4Controller:
                  self.axes_changed_since_last_sync = True # Flag that movement needs recalculating
                  log_debug(f"EVDEV Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
                  log_debug(f"---> Set axes_changed_since_last_sync = True")
+        # --- Removed simplified logic --- 
+        # self.axes[event.code] = event.value 
+        # self.axes_changed_since_last_sync = True 
+        # log_debug(f"EVDEV Axis event: Stored raw value {event.value} for code {event.code}")
+        # log_debug(f"---> Set axes_changed_since_last_sync = True (forced)")
 
     def _process_movement(self):
-        """Process movement based on joystick positions (uses self.axes)"""
-        log_debug("--- ENTERED _process_movement ---")
-        # Tank drive mode - left stick controls left track, right stick controls right track
-        # Get current values, default to 0 if not yet set
-        left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis so positive is forward
-        right_y = -self.axes.get('right_y', 0.0) # Invert Y axis so positive is forward
+        """Process movement based on joystick positions - RESTORED"""
+        log_debug("--- ENTERED _process_movement (Restored) ---") # UPDATED LOG
+        
+        # --- Use original logic with deadzone and scaling --- 
+        left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis
+        right_y = -self.axes.get('right_y', 0.0) # Invert Y axis
 
-        # Apply deadzone
         left_y_deadzoned = 0 if abs(left_y) < self.deadzone else left_y
         right_y_deadzoned = 0 if abs(right_y) < self.deadzone else right_y
         
-        # Scale by max speed
-        target_left_speed = left_y_deadzoned * self.max_speed
-        target_right_speed = right_y_deadzoned * self.max_speed
+        final_left_speed = left_y_deadzoned * self.max_speed
+        final_right_speed = right_y_deadzoned * self.max_speed
 
-        # --- Use target speed directly ---
-        final_left_speed = target_left_speed
-        final_right_speed = target_right_speed
-
-        # --- Simplified update logic ---
-        # Always update motors if control mode is PS4, let ControlManager handle state
-        # log_debug(f"Calculated speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
+        # --- Original Update Logic ---
+        # Check if control mode is PS4
         if control_manager.current_mode == ControlMode.PS4:
+            # Check if speeds are effectively zero
             if abs(final_left_speed) < 0.01 and abs(final_right_speed) < 0.01:
-                # If speeds are effectively zero, disable motors
-                if state_tracker.get_state('movement') != 'stopped': # Avoid redundant calls
-                     log_debug("Sticks centered or near zero, disabling motors.")
-                     self.robot.disable_motors()
-                     state_tracker.update_state('movement', 'stopped')
+                if state_tracker.get_state('movement') != 'stopped':
+                    log_debug("Movement: Disabling motors (sticks centered).")
+                    self.robot.disable_motors()
+                    state_tracker.update_state('movement', 'stopped')
             else:
                 # Speeds are non-zero, set them
-                log_debug(f"Updating motor speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
+                log_debug(f"Movement: Setting speeds L={final_left_speed:.2f}, R={final_right_speed:.2f}")
                 self.robot.set_left_speed(final_left_speed)
                 self.robot.set_right_speed(final_right_speed)
                 
-                # Determine movement state for logging/state tracking
+                # Determine movement state
                 if final_left_speed > 0 and final_right_speed > 0: movement_state = 'forward'
                 elif final_left_speed < 0 and final_right_speed < 0: movement_state = 'backward'
-                elif abs(final_left_speed) < 0.1 and abs(final_right_speed) < 0.1: movement_state = 'stopped' # Catch near zero case
-                elif final_left_speed < final_right_speed: movement_state = 'right' # Turning right: Left forward, Right back/slower
-                elif final_left_speed > final_right_speed: movement_state = 'left'  # Turning left: Right forward, Left back/slower
-                else: movement_state = 'complex_turn' # Both turning diff directions but not pure left/right
+                elif final_left_speed < final_right_speed: movement_state = 'right'
+                elif final_left_speed > final_right_speed: movement_state = 'left'
+                else: movement_state = 'complex_turn'
                 state_tracker.update_state('movement', movement_state)
-        # else:
-        #      log_warning(f"Movement ignored, current mode is {control_manager.current_mode}") # Already logged upstream potentially
+        # --- Removed simplified logic ---
 
 
 # Create global PS4 controller instance
