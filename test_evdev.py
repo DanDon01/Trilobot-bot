@@ -3,9 +3,9 @@ import sys
 import time # Added for potential sleep
 from evdev import InputDevice, categorize, ecodes, list_devices
 
-# --- Change this if your controller path might change ---
-DEVICE_PATH = "/dev/input/event9"
-# -----------------------------------------------------
+# --- Change this to the correct node ---
+DEVICE_PATH = "/dev/input/event7" # Replace X with 7, 8, or 9
+# --------------------------------------
 
 print(f"Attempting to open device: {DEVICE_PATH}")
 device = None # Initialize device variable
