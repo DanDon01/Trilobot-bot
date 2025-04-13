@@ -474,14 +474,20 @@ class PS4Controller:
             log_info(f"Device {device_path} opened successfully for evdev.")
 
             event_count = 0
-            log_info(f"Entering non-blocking evdev read loop for {device_path}...")
+            log_info(f"Entering blocking evdev read_loop() for {device_path}...")
 
-            while not self.stop_input.is_set():
-                event = local_device.read_one()
-                if event is None:
-                    # No event available, sleep briefly and check stop flag
-                    time.sleep(0.01)
-                    continue
+            # --- Use blocking read_loop() instead of read_one() ---
+            # while not self.stop_input.is_set():
+            #     event = local_device.read_one()
+            #     if event is None:
+            #         # No event available, sleep briefly and check stop flag
+            #         time.sleep(0.01)
+            #         continue
+            for event in local_device.read_loop():
+                # Check stop condition *inside* the loop
+                if self.stop_input.is_set():
+                    log_info(f"Stop signal received during read_loop ({thread_name}), exiting loop.")
+                    break
 
                 # If we reach here, an event was received
                 event_count += 1
@@ -512,9 +518,9 @@ class PS4Controller:
                 # --- End disable processing ---
 
         except BlockingIOError:
-            # This shouldn't happen with read_one() but handle just in case
-            log_warning(f"BlockingIOError caught unexpectedly during read_one() ({thread_name}).")
-            time.sleep(0.05)
+            # This might happen if read_loop is interrupted strangely
+            log_warning(f"BlockingIOError caught during read_loop ({thread_name}).")
+            # time.sleep(0.05) # No sleep needed for read_loop
         except OSError as e:
             # This usually means the controller disconnected
             log_error(f"Controller disconnected or read error in evdev loop ({thread_name}): {e}")
