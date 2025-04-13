@@ -1,369 +1,96 @@
 # Trilobot Project Analysis and Improvement Plan
 Trilobot is an AI-powered robot platform built on a Raspberry Pi 4, using a PS4 controller, Flask web interface, camera module, and various onboard sensors and LEDs. 
-The 2025 upgrade will focus on enhancing interactivity with voice control, personality via ElevenLabs, local caching to minimise API costs, and a computer vision system for object awareness.
+The 2025 upgrade focuses on enhancing interactivity with voice control (using ElevenLabs for TTS), improving control system robustness, and potentially re-introducing computer vision if dependencies can be managed.
 
 ## Current Specifications
 
 ### Hardware
-- Raspberry Pi (likely Pi 4)
+- Raspberry Pi 4
 - Pimoroni Trilobot robot platform
-- Raspberry Pi Camera Module
+- Raspberry Pi Camera Module (HQ assumed, based on imx477 sensor)
 - PS4 Wireless Controller
-- Distance Sensor (I2C)
-- Addressable RGB LEDs
-- USB ports available
-- GPIO pins fully used
-- I2C breakout board available
+- Onboard Distance Sensor
+- Onboard Addressable RGB LEDs & Button LEDs
 
-### Software
-- Python 3.x implementation
-- Flask web server for browser-based control
+### Software (Current State - April 11, 2025)
+- Python 3.11 (via venv)
+- Flask web server
 - Picamera2 for camera streaming
-- Custom movement control system
-- LED effects programming
+- Evdev for PS4 controller input
+- Modular Python code (`main.py`, `control_manager.py`, `camera_processor.py`, `ps4_controller.py`, `voice_controller.py`, `web_control.py`, `config.py`, `debugging.py`)
+- Configuration via `config.json`
+- Logging to console and timestamped files in `logs/` directory
+- Basic state tracking (`debugging.py`)
 
-### Features
+### Current Features
 1. **Dual Control Systems**:
-   - PS4 controller support (via Bluetooth)
-   - Web interface control (via Flask app)
+   - PS4 controller support (connection established, input processing under debug)
+   - Web interface control (movement confirmed working)
 
 2. **Movement Control**:
-   - Tank steering mode (left/right tracks controlled independently)
-   - Arcade steering mode (direction + rotation)
-   - Speed control with deadzone handling
-   - Emergency stop function
+   - Basic forward/backward/turn/stop actions via `ControlManager`.
+   - Speed control via `config.json`.
+   - Emergency stop function (basic implementation).
 
 3. **Visual Feedback**:
-   - Live camera streaming to web browser
-   - Multiple camera overlay modes (normal, night vision, targeting)
+   - Live camera streaming to web browser (currently experiencing issues after initial load).
+   - Basic camera overlay modes (normal, night_vision, targeting - functionality requires review).
 
 4. **LED Effects**:
-   - Knight Rider scanning effect
-   - Party mode with color cycling
-   - Distance-based warning lights
-   - Button LED control
+   - Knight Rider scanning effect (code exists, triggered by web/PS4).
+   - Party mode with color cycling (code exists, triggered by web/PS4).
+   - Button LED control (basic toggle via web).
 
 5. **Sensor Integration**:
-   - Distance sensor for proximity detection
-   - Color changes based on distance bands
+   - Distance sensor (hardware present, but not actively used in current control logic).
 
-## Current Limitations
+6. **Voice Output (TTS)**:
+   - ElevenLabs integration for TTS (code implemented).
+   - Caching system for TTS responses.
+   - Startup announcement implemented.
+   - *Blocked by missing Python modules.*
 
-1. **Control System**:
-   - Conflict between PS4 and web control modes
-   - Limited coordination between control systems
-   - Basic error handling
+## Current Limitations & Issues (As of April 11, 2025)
 
-2. **Camera System**:
-   - No image processing or computer vision
-   - Limited overlay functionality
-   - Camera errors not properly handled in all cases
+1. **PS4 Controller Input:** While connection is successful, controller actions (buttons, sticks) are not reliably triggering robot movement or actions. (Debugging in progress)
+2. **Camera Stream Stability:** The MJPEG stream works initially but stops displaying in the web interface after some time. (Debugging in progress)
+3. **Voice System Inactive:** Required Python modules (`SpeechRecognition`, `PyAudio`, `elevenlabs`) are not installed/detected in the venv, preventing TTS and voice recognition from functioning.
+4. **Control Mode Management:** Removed explicit mode setting from web controls, needs verification that PS4 retains control correctly.
+5. **Web Button Mapping:** Web interface buttons trigger specific LED effects, not direct PS4 button equivalents.
+6. **Computer Vision Removed:** OpenCV and related features were removed due to installation/dependency issues on the Pi.
 
-3. **User Experience**:
-   - Limited feedback on robot status
-   - No audio feedback or voice control
-   - Web interface could be more responsive and feature-rich
+## Revised Plan & Next Steps
 
-4. **Autonomy**:
-   - No autonomous functions or pathing
-   - No object detection or tracking
-   - No data logging or analysis
+**Overall Goal:** Stabilize core features (PS4 control, camera stream) and enable voice output.
 
-## Improvement Plan
+**Phase 1: Stabilize Core Systems (Current Focus)**
 
-### Phase 1: Codebase Cleanup and Optimization 
+1.  **Fix PS4 Controller Input:**
+    *   **Action:** Analyze logs with DEBUG level enabled (generated from previous steps).
+    *   **Goal:** Identify why `ps4_controller.py` isn't translating stick/button events into `control_manager.execute_action` calls when mode is PS4.
+    *   **Potential Fixes:** Adjust logic in `_process_axis_event`, `_process_button_event`, or `_process_movement` in `ps4_controller.py`.
 
-1. **Refactor Control System**:
-   - Create unified control manager to handle both PS4 and web inputs
-   - Implement proper state machine for robot modes
-   - Add better error handling and recovery
-   - Add debugging module for easier troubleshooting
+2.  **Fix Camera Stream:**
+    *   **Action:** Analyze logs with DEBUG level enabled.
+    *   **Goal:** Determine if the `generate()` loop in `web_control.py` stops running, throws an error, or if the issue is client-side (browser).
+    *   **Potential Fixes:** Improve error handling in the loop, check resource usage, potentially simplify frame processing.
 
-2. **Optimize Camera Streaming**:
-   - Improve error handling for camera failures
-   - Add resolution and framerate controls
-   - Optimize streaming for lower latency
-   - Add screenshot capture functionality
+3.  **Enable Voice Output:**
+    *   **Action (User):** Run `pip install SpeechRecognition PyAudio elevenlabs` within the activated venv on the Pi.
+    *   **Goal:** Allow the `voice_controller` module to load correctly and test TTS via the startup announcement.
+    *   **Potential Fixes:** Address any pip installation errors.
 
-3. **Code Structure**:
-   - Create separate modules for different functionalities
-   - Better documentation with docstrings
-   - Add config file for easier settings management
-   - Implement proper logging system
+**Phase 2: Refine and Test**
 
-### Phase 2: Enhance Existing Features 
+1.  **Verify Control Modes:** Ensure PS4 controller maintains priority and web controls work alongside it correctly.
+2.  **Test Voice System:** Confirm startup announcement plays. Test other `speak()` calls if desired.
+3.  **Review LED Effects:** Ensure Knight Rider / Party Mode trigger correctly from both PS4 and web.
+4.  **Basic Voice Recognition (Future):** Once TTS works, plan for installing microphone and implementing basic command listening.
+5.  **Re-evaluate Computer Vision (Future):** After core stability, decide whether to attempt re-integrating object detection, possibly using alternative libraries or methods if OpenCV remains problematic.
 
-1. **Improved Web Interface**:
-   - Redesign for mobile-friendly usage
-   - Add battery status indicator (mains or battery power detection)
-   - Add connection status indicators
-   - Implement WebSocket for more responsive control
-   - Add more visual feedback elements
+**Removed/Postponed from Original Plan:**
 
-2. **Enhanced LED System**:
-   - Add more patterns and animations
-   - Create custom pattern editor in web interface
-   - Implement context-aware lighting (status, warnings, etc.)
-   - Add synchronization with movement or music (Party mode)
-
-3. **Expanded Movement Controls**:
-   - Add programmable movement sequences
-   - Implement speed ramping for smoother starts/stops
-   - Create preset movements (spin, dance, etc.)
-
-### Phase 3: Voice Interaction Implementation 
-
-1. **Setup Speech Recognition**:
-   - Implement local speech recognition with Vosk or Whisper
-   - Add microphone support to Raspberry Pi (USB mic & speakers)
-   - Create simple command parser for basic controls
-
-2. **ElevenLabs Integration**:
-   - Register for ElevenLabs API access
-   - Implement API client for voice synthesis
-   - Create voice response templates
-   - Add voice caching for common responses
-   - Funny robotic voice personality
-   - Text-to-speech (TTS) responses via ElevenLabs
-   - Cached response system to save API usage:
-        # Command → Check local folder (/responses)
-        If response exists, play MP3
-        If not, fetch from ElevenLabs, save, and play
-        Implementation:
-        python
-        Copy
-        Edit
-        def speak(text, cache_name):
-            filename = f"responses/{cache_name}.mp3"
-            if os.path.exists(filename):
-                play_local(filename)
-            else:
-                audio = elevenlabs_generate(text)
-                save_audio(audio, filename)
-                play_local(filename)
-   - Playback handled with pygame or mpg123
-   - All responses saved for offline reuse
-
-
-3. **Voice Control System**:
-   - Define command vocabulary and syntax
-   - Voice Feedback & Personality
-   - Voice responses to actions: "Aye aye, Commander!"
-   - Status reports: battery, camera feed, obstacle alerts
-   - Contextual sass: “You already told me to do that, mate.”
-   - Commands Supported:
-        - "Move forward" / "Back up" / "Stop"
-        - "Spin left" / "Spin right"
-        - "Lights on" / "Party mode"
-        - "Say hello" / "Status report"
-   - Add more with simple text mappings
-   - Implement intent recognition
-   - Create fallback mechanisms for unclear commands
-   - Add voice confirmation for commands
-
-4. **Voice Feedback**:
-   - Status reports via voice
-   - Warnings and alerts
-   - Interactive conversations
-   - Voice personality configuration
-
-### Phase 4: Computer Vision and Object Recognition 
-
-1. **Setup Vision System**:
-   - Install OpenCV and/or TensorFlow Lite
-   - Optimize for Raspberry Pi performance
-   - Setup camera calibration procedure
-
-2. **Implement Basic Object Detection**:
-   - Add person detection
-   - Add common object recognition 
-   - Implement color tracking
-   - Create distance estimation to objects
-   - Stretch Goals:
-        -Voice reactions to visual triggers:
-        -“Target acquired. It’s… Dave again.”
-
-
-3. **Visual Navigation Aids**:
-   - Add line following capability
-   - Implement obstacle detection visualization
-   - Create visual markers recognition
-   - Add ArUco tag detection for positioning
-
-4. **Advanced Features**:
-   - Face recognition for user identification
-   - Gesture control recognition
-   - QR code scanning and processing
-   - Visual SLAM for mapping (if processing power allows)
-
-### Phase 5: Integration and Advanced Features 
-
-1. **Autonomous Navigation**:
-   - Combine vision and sensor data for navigation
-   - Implement basic mapping functionality
-   - Add path planning algorithms
-   - Create "return to home" function
-
-2. **Multi-Modal Interaction**:
-   - Combine voice, vision, and manual controls
-   - Context-aware responses based on environment
-   - Add scheduled tasks and routines
-   - Implement "follow me" mode using vision
-
-3. **Data Collection and Analysis**:
-   - Add data logging of sensor readings
-   - Create visualization of robot's path
-   - Implement basic analytics dashboard
-   - Add learning from user interactions
-
-4. **IoT and Remote Access**:
-   - Add secure remote access capability
-   - Implement IoT integration (MQTT, etc.)
-   - Create mobile app for remote control
-   - Add notification system for events
-
-## Implementation Details
-
-### Voice Interaction with ElevenLabs
-
-1. **Hardware Setup**:
-   - USB microphone or microphone HAT for Raspberry Pi
-   - Small speaker for voice output
-
-2. **Software Requirements**:
-   - SpeechRecognition library (pip install SpeechRecognition)
-   - PyAudio for audio input (pip install pyaudio)
-   - ElevenLabs Python SDK (pip install elevenlabs)
-   - Pygame for audio playback (pip install pygame)
-
-3. **Implementation Steps**:
-   ```python
-   # Voice processing module
-   import speech_recognition as sr
-   from elevenlabs import generate, play, set_api_key
-   
-   # Setup ElevenLabs
-   set_api_key("YOUR_API_KEY")
-   
-   def listen_for_command():
-       r = sr.Recognizer()
-       with sr.Microphone() as source:
-           r.adjust_for_ambient_noise(source)
-           print("Listening...")
-           audio = r.listen(source)
-           
-       try:
-           command = r.recognize_google(audio)
-           print(f"Heard: {command}")
-           return command.lower()
-       except Exception as e:
-           print(f"Error: {e}")
-           return None
-           
-   def speak_response(text):
-       audio = generate(
-           text=text,
-           voice="Josh",  # Choose an appropriate voice
-           model="eleven_monolingual_v1"
-       )
-       play(audio)
-   ```
-
-4. **Command Processing**:
-   - Create parser for common commands
-   - Define voice feedback for actions
-   - Implement error handling for misunderstood commands
-
-### Object Recognition Implementation
-
-1. **Setup Requirements**:
-   - OpenCV (pip install opencv-python)
-   - TensorFlow Lite (pip install tflite-runtime)
-   - Pre-trained model (MobileNet SSD or similar)
-
-2. **Implementation Steps**:
-   ```python
-   # Object detection module
-   import cv2
-   import numpy as np
-   import tflite_runtime.interpreter as tflite
-   
-   def initialize_model():
-       # Load the TFLite model
-       interpreter = tflite.Interpreter(model_path="detect.tflite")
-       interpreter.allocate_tensors()
-       return interpreter
-       
-   def detect_objects(frame, interpreter):
-       # Preprocess the image
-       input_details = interpreter.get_input_details()
-       output_details = interpreter.get_output_details()
-       
-       # Resize and normalize frame
-       input_shape = input_details[0]['shape'][1:3]
-       input_data = cv2.resize(frame, input_shape)
-       input_data = np.expand_dims(input_data, axis=0)
-       
-       # Run detection
-       interpreter.set_tensor(input_details[0]['index'], input_data)
-       interpreter.invoke()
-       
-       # Get results
-       boxes = interpreter.get_tensor(output_details[0]['index'])[0]
-       classes = interpreter.get_tensor(output_details[1]['index'])[0]
-       scores = interpreter.get_tensor(output_details[2]['index'])[0]
-       
-       return boxes, classes, scores
-   ```
-
-3. **Integration with Camera Stream**:
-   - Process frames from picamera2
-   - Add object highlighting in stream
-   - Create responses based on detected objects
-
-4. **Advanced Features**:
-   - Track objects across frames
-   - Calculate distance to objects
-   - React to specific objects (follow person, avoid obstacles)
-
-## Resource Requirements
-
-1. **Hardware Additions**:
-   - USB microphone or Microphone HAT (~$15-30)
-   - Speaker for voice output (~$10-20)
-   - Potentially more RAM for Pi if needed
-   - USB drive for logging and model storage
-
-2. **Software/Services**:
-   - ElevenLabs API subscription ($5-30/month depending on usage)
-   - Domain name for remote access (optional, ~$10-15/year)
-   - Development tools and libraries (mostly free/open source)
-
-3. **Skill Requirements**:
-   - Python programming
-   - Basic machine learning concepts
-   - Audio processing
-   - Flask/web development
-   - Raspberry Pi optimization
-
-## Timeline and Milestones
-
-1. **Month 1**: 
-   - Complete Phases 1 and 2
-   - Stable, optimized core functionality
-   - Improved user interface
-
-2. **Month 2**:
-   - Complete Phase 3 (Voice Interaction)
-   - Begin Phase 4 (Computer Vision)
-   - Working voice command system
-
-3. **Month 3**:
-   - Complete Phase 4
-   - Begin Phase 5 integration
-   - Working object recognition system
-
-4. **Month 4**:
-   - Complete all integrations
-   - Testing and optimization
-   - Documentation and tutorials 
+*   Extensive system checks in `run_trilobot.sh` (Simplified).
+*   Initial focus on computer vision features (Removed due to dependencies).
+*   Advanced Web UI features (WebSocket, mobile design) - Postponed.
+*   Autonomous Navigation - Postponed. 

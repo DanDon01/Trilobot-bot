@@ -1,141 +1,123 @@
 # Trilobot Project Progress Tracker
 
 ## Project Status
-**Current Phase:** Phase 1 - Codebase Cleanup and Optimization
+**Current Phase:** Phase 5 - Integration and Testing
 **Start Date:** [Insert Date]
-**Last Updated:** [Current Date]
+**Last Updated:** 2025-04-11
 
 ## Phase Progress
 
 ### Phase 1: Codebase Cleanup and Optimization
 - [x] Refactor Control System
   - [x] Create unified control manager
-  - [x] Implement state machine
+  - [x] Implement state machine (partially, simplified)
   - [x] Improve error handling
   - [x] Add debugging module
 - [x] Optimize Camera Streaming
-  - [x] Add error recovery for camera failures
-  - [x] Implement resolution controls
-  - [x] Optimize streaming performance
+  - [x] Add error recovery for camera failures (basic)
+  - [x] Implement resolution controls (via config)
+  - [x] Optimize streaming performance (basic MJPEG)
   - [x] Add screenshot functionality
 - [x] Code Structure
   - [x] Create separate functional modules
   - [x] Add docstrings and documentation
-  - [x] Implement configuration system
+  - [x] Implement configuration system (config.py + config.json)
   - [x] Add logging system
 
 ### Phase 2: Enhance Existing Features
 - [x] Improved Web Interface
-  - [x] Add status indicators
-  - [x] Implement better error handling
+  - [x] Add status indicators (basic in template)
+  - [x] Implement better error handling (in progress)
   - [ ] Mobile-friendly redesign
   - [ ] Implement WebSocket for control
 - [x] Enhanced LED System
-  - [x] Add new animations
-  - [x] Implement context-aware lighting
+  - [x] Add new animations (Knight Rider, Party Mode)
+  - [x] Implement context-aware lighting (basic state tracking)
   - [ ] Create pattern editor
 - [x] Expanded Movement Controls
-  - [x] Add movement sequences
-  - [x] Implement speed ramping
-  - [x] Create preset movements
+  - [ ] Add movement sequences
+  - [x] Implement speed ramping (basic via ControlManager)
+  - [x] Create preset movements (basic actions defined)
 
 ### Phase 3: Voice Interaction Implementation
-- [x] Setup Speech Recognition
-  - [x] Implement local recognition
-  - [x] Create command parser
+- [ ] Setup Speech Recognition
+  - [ ] Implement local recognition (Currently blocked by missing modules)
+  - [ ] Create command parser
   - [ ] Install and configure microphone (hardware needed)
 - [x] ElevenLabs Integration
-  - [x] Implement voice synthesis
-  - [x] Create voice response system
+  - [x] Implement voice synthesis (code present)
+  - [x] Create voice response system (basic `speak` function)
   - [x] Create caching system for responses
   - [ ] Register API access (requires account setup)
+  - [ ] Test with working modules and speaker
 
 ### Phase 4: Computer Vision and Object Recognition
-- [x] Setup Vision System
-  - [x] Add required libraries
-  - [x] Optimize for Raspberry Pi
+- [x] Setup Vision System (OpenCV removed)
+  - [ ] Add required libraries (If re-implemented)
+  - [ ] Optimize for Raspberry Pi
   - [ ] Setup camera calibration (needs hardware testing)
-- [x] Implement Object Detection
-  - [x] Create detection framework
-  - [x] Implement visual feedback system
+- [ ] Implement Object Detection
+  - [ ] Create detection framework
+  - [ ] Implement visual feedback system
   - [ ] Add person detection (needs model)
   - [ ] Add common object recognition (needs model)
 
-### Phase 5: Integration and Advanced Features
+### Phase 5: Integration and Testing
+- [x] Multi-Modal Interaction
+  - [x] Integrate PS4 and Web controls (Initial integration done, needs refinement)
+  - [ ] Implement follow mode
 - [ ] Autonomous Navigation
   - [ ] Implement basic mapping
   - [ ] Create path planning
   - [ ] Add return home function
-- [x] Multi-Modal Interaction
-  - [x] Integrate voice, vision, and manual controls
-  - [ ] Implement follow mode
+- [x] Hardware Testing
+  - [x] Create hardware test script
+  - [x] Verify Core components (Trilobot, Camera Basic)
+- [ ] Voice System Testing
+  - [ ] Install missing voice modules
+  - [ ] Test microphone input
+  - [ ] Test TTS output via speaker
+- [ ] Control System Refinement
+  - [ ] Resolve PS4 control issues
+  - [ ] Improve web control responsiveness / WebSocket
 
 ## Bug Fixes
 
-| Date | Bug Description | Fix | Status |
-|------|----------------|-----|--------|
-| [Current Date] | Control conflict between PS4 and web | Implemented unified control manager with state machine | Fixed |
-| [Current Date] | Camera errors not properly handled | Added error recovery and restart mechanisms | Fixed |
-| [Current Date] | No centralized configuration | Created config module with JSON persistence | Fixed |
+| Date       | Bug Description                         | Fix                                                            | Status   |
+|------------|-----------------------------------------|----------------------------------------------------------------|----------|
+| 2025-04-11 | Control conflict between PS4 and web    | Removed mode switching from web routes                         | Fixed    |
+| 2025-04-11 | Camera errors not properly handled      | Added error recovery and restart mechanisms (basic)            | Improved |
+| 2025-04-11 | No centralized configuration            | Created config module with JSON persistence                    | Fixed    |
+| 2025-04-11 | OpenCV dependency issues                | Removed OpenCV, simplified camera processor                  | Fixed    |
+| 2025-04-11 | Trilobot lib not found in venv          | Updated startup script, instructed on venv recreation          | Fixed    |
+| 2025-04-11 | run_trilobot.sh permission denied       | Instructed user to use `chmod +x`                              | Fixed    |
+| 2025-04-11 | PS4 controls stop after web interaction | Removed automatic mode switching in web_control.py             | Fixed    |
+| 2025-04-11 | Voice modules missing                   | Instructed user to install via pip in venv                   | Pending  |
+| 2025-04-11 | Camera stream stops                     | Added logging to stream generator for diagnosis              | Pending  |
+| 2025-04-11 | PS4 controller actions not processed  | Added logging to PS4 controller loop for diagnosis           | Pending  |
+| 2025-04-11 | Startup script too complex              | Simplified run_trilobot.sh to core activation and execution | Fixed    |
 
 ## Major Changes
 
-| Date | Change | Description | Impact |
-|------|--------|-------------|--------|
-| [Current Date] | Code Modularization | Split monolithic application into functional modules | Improved maintainability |
-| [Current Date] | Added Debugging System | Implemented logging, state tracking, and performance monitoring | Easier troubleshooting |
-| [Current Date] | Added Computer Vision | Implemented object detection framework | New feature capability |
-| [Current Date] | Added Voice Control | Implemented speech recognition and ElevenLabs TTS | New interaction method |
+| Date       | Change                     | Description                                                    | Impact                     |
+|------------|----------------------------|----------------------------------------------------------------|----------------------------|
+| 2025-04-11 | Code Modularization        | Split monolithic application into functional modules           | Improved maintainability   |
+| 2025-04-11 | Added Debugging System     | Implemented logging, state tracking, and performance monitoring | Easier troubleshooting     |
+| 2025-04-11 | Removed Computer Vision    | Removed OpenCV due to dependency issues                        | Feature removed (temp?)    |
+| 2025-04-11 | Added Voice Control        | Implemented speech recognition stubs and ElevenLabs TTS        | New interaction method     |
+| 2025-04-11 | Refactored Startup Script  | Simplified run_trilobot.sh                                     | Easier startup             |
 
-## Weekly Updates
+## Current Status & Next Steps
 
-### Week 1 (Date Range)
-- Started codebase review
-- Identified key issues in control system
-- Initial tests of camera optimization
-
-### Week 2 (Date Range)
-- Refactored control system into a unified manager
-- Implemented state machine for robot modes
-- Began modularizing code into separate functional files
-
-### Week 3 (Current Week)
-- Completed debugging module with logging and state tracking
-- Implemented configuration system
-- Added camera processor with optimization and error handling
-- Created voice controller with ElevenLabs integration
-- Implemented PS4 controller module with improved controls
-- Created main application entry point with proper initialization
-
-## Milestones Reached
-
-| Date | Milestone | Description |
-|------|-----------|-------------|
-| [Current Date] | Phase 1 Complete | Completed codebase cleanup and optimization |
-| [Current Date] | Modular Architecture | Successfully split application into functional modules |
-
-## Resource Tracking
-
-### Hardware Additions
-- [ ] USB Microphone (ready for implementation)
-- [ ] Speaker for audio output (ready for implementation)
-- [ ] Additional storage (recommended for response caching)
-
-### Software Dependencies
-- [x] All dependencies listed in requirements.txt
-- [ ] ElevenLabs API setup (needs account)
-- [ ] TensorFlow Lite models (need to be downloaded)
-
-## Notes and Observations
-
-- Voice control and computer vision ready for testing but require hardware setup
-- Configuration system allows easy tuning without code changes
-- Modular design enables adding new features without affecting core functionality
-
-## Next Steps
-
-- Test on actual Trilobot hardware
-- Download and configure TensorFlow Lite models for object detection
-- Create ElevenLabs account and configure API access
-- Test voice recognition with physical microphone
-- Enhance web interface with mobile-friendly design
+- **Core functionality (Trilobot motors, basic camera, web movement) is verified.**
+- **PS4 Controller Issue:** Controller connects but actions don't seem to be processed correctly. Debug logging added to `ps4_controller.py`.
+- **Camera Stream Issue:** Stream stops working after initially loading. Debug logging added to `web_control.py` stream generator.
+- **Voice System Blocked:** Still requires user to install `SpeechRecognition`, `PyAudio`, `elevenlabs` via pip in the venv.
+- **Next Steps:**
+  1. **User Action:** Run `pip install SpeechRecognition PyAudio elevenlabs` in the activated venv on the Pi.
+  2. **Run Application:** Execute `./run_trilobot.sh`.
+  3. **Test & Observe:**
+     - Check if the camera stream stays active.
+     - Test PS4 controller buttons and sticks, observe log output (especially `DEBUG` logs related to PS4 events and actions).
+     - Listen for the startup voice announcement.
+  4. **Report Findings:** Provide the relevant log output, specifically focusing on camera stream logs and PS4 controller logs (raw events, processed actions, warnings).

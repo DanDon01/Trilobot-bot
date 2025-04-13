@@ -13,7 +13,7 @@ import os
 from math import copysign
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, state_tracker
+from debugging import log_info, log_error, log_warning, state_tracker, log_debug
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 
@@ -419,93 +419,101 @@ class PS4Controller:
             return False
     
     def _input_loop(self):
-        """Main loop for processing controller input"""
-        log_info("PS4 controller input loop started")
-        
+        """Read and process controller events"""
+        log_info("Starting PS4 controller input loop.")
+        if not self.device:
+            log_error("Input loop started without a valid controller device.")
+            self.running = False
+            return
+
         try:
-            # Set PS4 mode
-            control_manager.set_mode(ControlMode.PS4)
-            
-            # Process events
             for event in self.device.read_loop():
+                # Log raw event data for debugging
+                log_debug(f"Raw event: type={event.type}, code={event.code}, value={event.value}")
+                
                 if self.stop_input.is_set():
+                    log_info("Stop signal received, exiting input loop.")
                     break
-                    
-                # Process different event types
-                if event.type == ecodes.EV_KEY:  # Button event
+                
+                if event.type == ecodes.EV_KEY:
                     self._process_button_event(event)
-                elif event.type == ecodes.EV_ABS:  # Joystick/trigger event
+                elif event.type == ecodes.EV_ABS:
                     self._process_axis_event(event)
                 
-                # Process combined inputs to derive movement
-                self._process_movement()
+                # Recalculate movement after any relevant event
+                if event.type in [ecodes.EV_KEY, ecodes.EV_ABS]:
+                    self._process_movement()
+                    
+        except OSError as e:
+            log_error(f"Controller disconnected or read error: {e}")
+            self.device = None # Mark device as unavailable
+            self.running = False
+            # Optionally, trigger auto-reconnect here
+            if config.get("controller", "auto_reconnect"):
+                 log_info("Attempting to reconnect controller...")
+                 # Implement reconnection logic or signal main thread
+                 pass
         except Exception as e:
-            log_error(f"Error in PS4 controller input loop: {e}")
-            # Try to reconnect if the controller disconnected
-            time.sleep(2)
-            if not self.stop_input.is_set():
-                log_info("Attempting to reconnect to PS4 controller...")
-                self.device = None
-                self.bluetooth_connected = False
-                
-                # Make a reconnection attempt
-                if self.attempt_bluetooth_connection():
-                    log_info("PS4 controller reconnected, restarting input loop")
-                    self._input_loop()
-                else:
-                    log_warning("Failed to reconnect to PS4 controller")
-                    # Automatically switch to web-only mode
-                    self.web_only_mode = True
-                    control_manager.set_mode(ControlMode.WEB)
-                    state_tracker.update_state('control_mode', 'web_only')
-    
+            log_error(f"Unexpected error in input loop: {e}")
+            self.running = False
+        finally:
+            log_info("PS4 controller input loop finished.")
+
     def _process_button_event(self, event):
         """Process button press/release events"""
-        if event.code in self.button_map:
-            button_name = self.button_map[event.code]
-            pressed = (event.value == 1)
+        button_name = self.button_map.get(event.code)
+        if button_name:
+            is_pressed = (event.value == 1)
+            self.buttons[button_name] = is_pressed
+            log_debug(f"Button event: {button_name} {'pressed' if is_pressed else 'released'}")
             
-            # Update button state
-            self.buttons[button_name] = pressed
-            
-            if pressed:
-                log_info(f"Button pressed: {button_name}")
-                
-                # Handle specific button actions
-                if button_name == 'x':  # X button
-                    control_manager.execute_action(ControlAction.STOP)
-                elif button_name == 'triangle':  # Triangle button
-                    # Toggle button LEDs
-                    control_manager.button_leds_active = not control_manager.button_leds_active
-                elif button_name == 'circle':  # Circle button
-                    control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER)
-                elif button_name == 'square':  # Square button
-                    control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE)
-                elif button_name == 'share':  # Share button
-                    control_manager.execute_action(ControlAction.TAKE_PHOTO)
-                elif button_name == 'ps':  # PS button
-                    control_manager.execute_action(ControlAction.EMERGENCY_STOP)
-    
+            # Trigger actions based on button press (not release)
+            if is_pressed:
+                 action = None
+                 if button_name == 'x':
+                     # Example: Stop motors
+                     action = ControlAction.STOP
+                     log_info("PS4: X pressed -> STOP")
+                 elif button_name == 'triangle':
+                     # Example: Take photo
+                     action = ControlAction.TAKE_PHOTO
+                     log_info("PS4: Triangle pressed -> TAKE_PHOTO")
+                 elif button_name == 'circle':
+                      # Example: Toggle Knight Rider
+                      action = ControlAction.TOGGLE_KNIGHT_RIDER
+                      log_info("PS4: Circle pressed -> TOGGLE_KNIGHT_RIDER")
+                 elif button_name == 'square':
+                      # Example: Toggle Party Mode
+                      action = ControlAction.TOGGLE_PARTY_MODE
+                      log_info("PS4: Square pressed -> TOGGLE_PARTY_MODE")
+                 # Add other button actions here...
+                 
+                 if action:
+                     # Ensure controller has priority before sending action
+                     if control_manager.current_mode == ControlMode.PS4:
+                          control_manager.execute_action(action, source="ps4")
+                     else:
+                          log_warning(f"PS4 action {action} ignored, current mode is {control_manager.current_mode}")
+
     def _process_axis_event(self, event):
-        """Process joystick and trigger events"""
-        if event.code in self.axis_map:
-            axis_name = self.axis_map[event.code]
-            
-            # Normalize axis values to -1 to 1 range
-            if axis_name in ['left_x', 'left_y', 'right_x', 'right_y']:
-                # Joystick values typically range from -32768 to 32767
-                value = event.value / 32767.0
-                if abs(value) < self.deadzone:
-                    value = 0.0
-            elif axis_name in ['l2', 'r2']:
-                # Trigger values typically range from 0 to 255
+        """Process joystick/trigger events"""
+        axis_name = self.axis_map.get(event.code)
+        if axis_name:
+            # Normalize axis value from 0-255 (triggers) or ~-32k to +32k (sticks) to -1 to 1 or 0 to 1
+            if 'trigger' in axis_name or 'l2' in axis_name or 'r2' in axis_name:
+                # Triggers 0 to 255 -> 0 to 1
                 value = event.value / 255.0
+            elif 'dpad' in axis_name:
+                 # Dpad -1, 0, 1 - Keep as is for now
+                 value = event.value
             else:
-                # D-pad values are -1, 0, or 1
-                value = event.value
-            
-            # Update axis state
+                # Sticks roughly -32768 to 32767 -> -1 to 1
+                value = event.value / 32767.0
+                # Clamp value to ensure it's within -1 to 1 range
+                value = max(-1.0, min(1.0, value))
+                
             self.axes[axis_name] = value
+            log_debug(f"Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
     
     def _process_movement(self):
         """Process movement based on joystick positions"""

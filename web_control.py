@@ -265,91 +265,128 @@ def stop():
 
 @app.route('/stream.mjpg')
 def stream():
-    """Video streaming route"""
+    """Video streaming route."""
     def generate():
+        """Generator function for video streaming."""
+        log_info("Starting camera stream generation.")
+        stream_start_time = time.time()
+        frame_count = 0
+        last_log_time = stream_start_time
+        
         output = camera_processor.get_stream()
-        
-        if not camera_processor.running:
-            # Generate a basic placeholder image for the stream when camera is not available
-            import io
-            try:
-                # Try to use PIL to generate a simple image
-                from PIL import Image, ImageDraw, ImageFont
-                
-                # Create a mock frame with "Camera Unavailable" text
-                def create_mock_frame():
-                    width, height = 640, 480
-                    img = Image.new('RGB', (width, height), color=(70, 70, 70))
-                    draw = ImageDraw.Draw(img)
-                    
-                    # Draw text
-                    text = "Camera Unavailable"
-                    text_width = draw.textlength(text, font=None)
-                    draw.text(
-                        ((width - text_width) / 2, height // 2 - 10),
-                        text,
-                        fill=(255, 255, 255)
-                    )
-                    
-                    # Add timestamp for changing image
-                    timestamp = time.strftime("%H:%M:%S")
-                    draw.text(
-                        (10, height - 30),
-                        f"Time: {timestamp}",
-                        fill=(200, 200, 200)
-                    )
-                    
-                    # Convert to JPEG bytes
-                    img_byte_arr = io.BytesIO()
-                    img.save(img_byte_arr, format='JPEG')
-                    return img_byte_arr.getvalue()
-                
-                # Return mock frames
-                while True:
-                    mock_frame = create_mock_frame()
-                    yield (b'--FRAME\r\n'
-                        b'Content-Type: image/jpeg\r\n\r\n' + mock_frame + b'\r\n')
-                    time.sleep(1)  # Update once per second
-                    
-            except ImportError:
-                # If PIL is not available, use an even simpler approach
-                log_warning("PIL not available for mock video. Using minimal fallback.")
-                empty_frame = b''
-                while True:
-                    yield (b'--FRAME\r\n'
-                        b'Content-Type: image/jpeg\r\n\r\n' + empty_frame + b'\r\n')
-                    time.sleep(0.5)
-        
-        # Normal camera streaming when available
+        if output is None:
+            log_error("Failed to get stream output from camera_processor.")
+            # Potentially yield a static error image here
+            return
+
         while True:
             try:
                 with output.condition:
                     output.condition.wait()
                     frame = output.frame
                 
-                # Apply any overlay if needed
+                if frame is None:
+                    log_warning("Stream generator received None frame.")
+                    time.sleep(0.1) # Avoid busy-waiting if frames stop
+                    continue
+
+                # Apply overlay - ensure this doesn't take too long
                 processed_frame = camera_processor.apply_overlay(frame)
                 
-                yield (b'--FRAME\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
+                # Send the frame
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
+                frame_count += 1
+
+                # Log frame count periodically
+                current_time = time.time()
+                if current_time - last_log_time >= 10.0: # Log every 10 seconds
+                    fps = frame_count / (current_time - stream_start_time)
+                    log_debug(f"Camera stream active: {frame_count} frames sent, ~{fps:.1f} FPS")
+                    last_log_time = current_time
+
+            except GeneratorExit:
+                log_info("Camera stream generator stopped (client disconnected).")
+                break
             except Exception as e:
-                log_error(f"Stream error: {e}")
-                time.sleep(0.5)
-    
-    return Response(generate(),
-                mimetype='multipart/x-mixed-replace; boundary=FRAME')
+                log_error(f"Error in camera stream generator: {e}")
+                # Consider breaking or yielding an error frame
+                time.sleep(1) # Pause before retrying after error
+                # break # Uncomment to stop streaming on error
+        
+        log_info("Exiting camera stream generation loop.")
+
+    # Return the response with the generator function
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# --- Mock Frame Generation (if hardware not available) ---
+# Note: This part might need Pillow (PIL fork)
+# sudo apt-get install python3-pil
+def create_mock_frame():
+    """Create a mock camera frame for testing without hardware."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        # Use a basic font if possible, otherwise skip text
+        try:
+            # Try common paths for default fonts
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            if not os.path.exists(font_path):
+                 font_path = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+            if not os.path.exists(font_path):
+                font = ImageFont.load_default() # Fallback to PIL default
+            else:
+                 font = ImageFont.truetype(font_path, 20)
+        except Exception:
+             font = ImageFont.load_default()
+        
+        img = Image.new('RGB', (640, 480), color = (73, 109, 137)) # Blue-grey background
+        d = ImageDraw.Draw(img)
+        
+        # Add timestamp and status text
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        status = "MOCK CAMERA - NO HARDWARE"
+        d.text((10,10), timestamp, fill=(255,255,0), font=font)
+        d.text((10,40), status, fill=(255,0,0), font=font)
+        
+        # Draw a simple pattern
+        for i in range(0, 640, 20):
+             d.line([(i, 0), (i, 480)], fill=(128, 128, 128))
+        for i in range(0, 480, 20):
+             d.line([(0, i), (640, i)], fill=(128, 128, 128))
+             
+        # Simulate movement state visually
+        movement_state = state_tracker.get_state('movement')
+        if movement_state == 'forward':
+             d.polygon([(300, 200), (340, 200), (320, 180)], fill='green')
+        elif movement_state == 'backward':
+             d.polygon([(300, 260), (340, 260), (320, 280)], fill='red')
+        elif movement_state == 'left':
+             d.polygon([(280, 220), (300, 200), (300, 240)], fill='yellow')
+        elif movement_state == 'right':
+             d.polygon([(360, 220), (340, 200), (340, 240)], fill='yellow')
+        else: # stopped
+             d.rectangle([(310, 210), (330, 230)], fill='gray')
+
+        # Convert to JPEG bytes
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        return buf.getvalue()
+    except ImportError:
+        # Fallback if Pillow is not installed
+        log_warning("Pillow (PIL) not installed. Cannot generate mock frames.")
+        # Return a minimal response or placeholder bytes
+        return b'--frame\r\nContent-Type: text/plain\r\n\r\nMock frame error: Pillow not found.\r\n'
+    except Exception as e:
+        log_error(f"Error creating mock frame: {e}")
+        return b'--frame\r\nContent-Type: text/plain\r\n\r\nMock frame generation error.\r\n'
+# --- End Mock Frame Generation ---
 
 def cleanup():
-    """Cleanup function to run when shutting down"""
-    log_info("Cleaning up web control resources")
-    
-    # Stop light shows
+    """Clean up resources, especially light shows"""
+    log_info("Stopping web control background tasks...")
     stop_light_shows.set()
     if light_show_thread and light_show_thread.is_alive():
         light_show_thread.join(timeout=1.0)
-    
-    # Stop control manager
-    control_manager.stop()
 
 @app.route('/test')
 def test():
