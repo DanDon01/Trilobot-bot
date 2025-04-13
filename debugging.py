@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 
 # Configure logging
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DIRECTORY = 'logs'
 
