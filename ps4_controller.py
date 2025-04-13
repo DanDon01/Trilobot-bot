@@ -581,13 +581,19 @@ class PS4Controller:
     def _process_button_event(self, event):
         """Process button press/release events (evdev)"""
         log_debug(f"--- ENTERED _process_button_event --- Code: {event.code}")
+        
+        # Ensure we're in PS4 control mode when buttons are used
+        if control_manager.current_mode != ControlMode.PS4:
+            log_info("PS4 button pressed - switching to PS4 control mode")
+            control_manager.set_mode(ControlMode.PS4)
+        
         # Check if button code exists in our map
         button_name = self.button_map.get(event.code)
         if button_name:
             is_pressed = (event.value == 1) # 1 for press, 0 for release, 2 for repeat (treat repeat as press)
             self.buttons[button_name] = is_pressed
             log_debug(f"EVDEV Button event: {button_name} {'pressed' if is_pressed else 'released'} (val: {event.value})")
-            log_info(f"PS4 BUTTON: {button_name} {'PRESSED' if is_pressed else 'RELEASED'}")  # MORE VISIBLE LOG
+            log_info(f"PS4 BUTTON: Code={event.code}, Name={button_name} {'PRESSED' if is_pressed else 'RELEASED'}")  # MORE VISIBLE LOG
 
             # Normalize alt button names to standard names
             standard_name = button_name
@@ -599,13 +605,15 @@ class PS4Controller:
             if is_pressed: # Only trigger on initial press (value 1) or repeat (value 2)
                  action = None
                  
-                 # Map standard and alt buttons to the same actions
+                 # Map standard and alt buttons to the same actions - MATCH WEB INTERFACE
                  if standard_name == 'x': 
-                     action = ControlAction.STOP
-                     log_info("X button - STOPPING MOTORS")
-                 elif standard_name == 'triangle': 
                      action = ControlAction.TAKE_PHOTO
-                     log_info("Triangle button - TAKING PHOTO")
+                     log_info("X button - TAKING PHOTO")
+                 elif standard_name == 'triangle': 
+                     # Toggle button LEDs, same as web interface
+                     self._handle_toggle_button_leds()
+                     log_info("Triangle button - TOGGLING BUTTON LEDS")
+                     return  # Special handling, early return
                  elif standard_name == 'circle': 
                      action = ControlAction.TOGGLE_KNIGHT_RIDER
                      log_info("Circle button - TOGGLING KNIGHT RIDER")
@@ -664,6 +672,19 @@ class PS4Controller:
                                   state_tracker.update_state('led_mode', 'party' if control_manager.party_mode_active else 'off')
                               except Exception as e:
                                   log_error(f"Error toggling party mode: {e}")
+                          elif action == ControlAction.TAKE_PHOTO:
+                              log_info("DIRECTLY taking photo")
+                              try:
+                                  # Use the same code as in control_manager._handle_take_photo
+                                  from camera_processor import camera_processor
+                                  filepath = camera_processor.take_photo()
+                                  if filepath:
+                                      log_info(f"Photo captured: {filepath}")
+                                  else:
+                                      log_warning("Failed to capture photo (camera processor reported failure)")
+                                  state_tracker.update_state('camera_mode', 'photo_taken')
+                              except Exception as e:
+                                  log_error(f"Error taking photo: {e}")
                           
                           # Still try the regular action execution
                           success = control_manager.execute_action(action, source="ps4")
@@ -673,6 +694,27 @@ class PS4Controller:
         else:
             # Log unknown button codes to help diagnose mapping issues
             log_warning(f"Unknown button code: {event.code} with value: {event.value}")
+            
+    def _handle_toggle_button_leds(self):
+        """Toggle button LEDs - matches web interface Triangle button function"""
+        log_info("PS4 controller toggling button LEDs")
+        try:
+            # Toggle button LEDs state
+            control_manager.button_leds_active = not control_manager.button_leds_active
+            
+            # Set button LEDs if hardware is available
+            if hasattr(control_manager, 'robot') and control_manager.robot is not None:
+                try:
+                    from trilobot import NUM_BUTTONS
+                    for led in range(NUM_BUTTONS):
+                        control_manager.robot.set_button_led(led, control_manager.button_leds_active)
+                    log_info(f"Button LEDs set to {'ON' if control_manager.button_leds_active else 'OFF'}")
+                except Exception as e:
+                    log_error(f"Error setting button LEDs: {e}")
+            else:
+                log_warning("Cannot set button LEDs: Hardware not available")
+        except Exception as e:
+            log_error(f"Error in _handle_toggle_button_leds: {e}")
 
     def _process_axis_event(self, event):
         """Process joystick and trigger axis events (evdev)"""
