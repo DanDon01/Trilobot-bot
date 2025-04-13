@@ -681,7 +681,10 @@ class PS4Controller:
             try:
                 # get_gamepad() blocks until an event occurs
                 # It raises inputs.UnpluggedError if controller disconnects
+                log_debug(f"[{thread_name}] Waiting for events via inputs.get_gamepad()...")
                 events = inputs.get_gamepad()
+                log_debug(f"[{thread_name}] inputs.get_gamepad() returned. Events: {events}")
+
                 if not events:
                     # Should not happen if blocking, but handle anyway
                     time.sleep(0.01)

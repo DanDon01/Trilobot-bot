@@ -296,11 +296,11 @@ def stream():
                     continue
 
                 # Apply overlay - ensure this doesn't take too long
-                processed_frame = camera_processor.apply_overlay(frame)
+                # processed_frame = camera_processor.apply_overlay(frame)
                 
                 # Send the frame
                 yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + processed_frame + b'\r\n')
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 frame_count += 1
 
                 # Log frame count periodically
