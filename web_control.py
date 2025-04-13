@@ -67,17 +67,6 @@ def index():
                          stream_url=f'/stream.mjpg',
                          hardware_status=hardware_status)
 
-@app.route('/overlay/<mode>')
-def set_overlay(mode):
-    """Set the camera overlay mode"""
-    try:
-        camera_processor.set_overlay_mode(mode)
-        log_info(f"Overlay mode set to: {mode}")
-        return jsonify({'status': 'success', 'mode': mode})
-    except Exception as e:
-        log_error(f"Overlay error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
-
 def knight_rider_effect():
     """Knight Rider light effect"""
     log_info("Starting Knight Rider effect")
@@ -205,27 +194,13 @@ def handle_button(button_name, action):
                           try: tbot.clear_underlighting() 
                           except: pass # Ignore errors during clear
         elif button_name == 'cross':
+            # *** Re-purposed: Take Photo ***
             if is_active:
-                # Clear all effects
-                control_manager.knight_rider_active = False
-                control_manager.party_mode_active = False
-                stop_light_shows.set()
-                control_manager.button_leds_active = False # Also turn off button LEDs
-                
-                # This assumes hardware access - guard it
-                try:
-                    # *** Use shared tbot instance ***
-                    if can_access_hw:
-                        tbot.clear_underlighting()
-                        for led in range(NUM_BUTTONS):
-                            tbot.set_button_led(led, False)
-                    else:
-                         log_warning("Cannot clear LEDs: Hardware not available or not initialized.")
-                except AttributeError as ae:
-                     log_warning(f"Unable to clear LEDs (likely missing method on robot instance): {ae}")
-                except Exception as e:
-                    log_warning(f"Unable to access hardware LEDs: {e}")
-                    
+                log_info("Web button Cross pressed -> TAKE_PHOTO") # Log change
+                # Trigger take photo action
+                control_manager.execute_action(ControlAction.TAKE_PHOTO, source="web")
+                # Optional: Update status or provide feedback
+                # document.getElementById('status-text').textContent = 'Taking photo...'; // Handled client-side ideally
         elif button_name == 'square':
             if is_active:
                 control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="web")

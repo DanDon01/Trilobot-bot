@@ -57,7 +57,6 @@ class StateTracker:
             'control_mode': 'none',        # 'ps4', 'web', 'voice', 'autonomous'
             'movement': 'stopped',         # 'forward', 'backward', 'left', 'right', 'stopped'
             'led_mode': 'off',             # 'off', 'knight_rider', 'party', 'distance', 'custom'
-            'camera_mode': 'normal',       # 'normal', 'night_vision', 'targeting'
             'battery_status': 'unknown',   # 'unknown', 'good', 'low', 'critical'
             'errors': []                   # List of active errors
         }

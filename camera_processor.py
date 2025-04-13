@@ -74,7 +74,6 @@ class CameraProcessor:
         self.camera = None
         self.output = StreamingOutput()
         self.processing_output = StreamingOutput()
-        self.overlay_mode = 'normal'
         self.running = False
         self.detection_enabled = False
         self.hardware_error = picamera2_error
@@ -164,11 +163,6 @@ class CameraProcessor:
         except Exception as e:
             log_error(f"Error stopping camera processor: {e}")
     
-    def set_overlay_mode(self, mode):
-        """Set the overlay mode for camera stream"""
-        self.overlay_mode = mode
-        log_info(f"Camera overlay mode set to: {mode}")
-    
     def take_photo(self):
         """Capture a still photo"""
         if not hardware_available or not self.camera:
@@ -216,17 +210,11 @@ class CameraProcessor:
         """Get the latest detected objects (empty list - detection removed)"""
         return []
     
-    def apply_overlay(self, frame):
-        """Apply the current overlay mode to a frame (simplified without OpenCV)"""
-        # Simply return the original frame since we've removed OpenCV processing capabilities
-        return frame
-    
     def get_camera_status(self):
         """Get the current status of the camera"""
         return {
             "available": hardware_available,
             "running": self.running,
-            "overlay_mode": self.overlay_mode,
             "error": self.hardware_error
         }
 

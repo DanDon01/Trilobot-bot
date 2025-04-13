@@ -177,12 +177,6 @@
             </div>
         </div>
         
-        <div class="overlay-controls" style="margin: 10px 0; text-align: center;">
-            <button onclick="setOverlay('normal')" class="overlay-btn">Normal View</button>
-            <button onclick="setOverlay('night_vision')" class="overlay-btn">Night Vision</button>
-            <button onclick="setOverlay('targeting')" class="overlay-btn">Targeting</button>
-        </div>
-        
         <div id="status" style="text-align: center; margin: 10px 0;">
             Status: <span id="status-text">Ready</span>
         </div>
@@ -315,24 +309,6 @@
                  button.addEventListener('touchcancel', releaseHandler);
             }
         });
-        
-        // === Overlay Controls ===
-        function setOverlay(mode) {
-            console.log(`Setting overlay to: ${mode}`);
-            fetch(`/overlay/${mode}`)
-                .then(response => response.json())
-                .then(data => {
-                     if (data.status === 'success') {
-                         document.getElementById('status-text').textContent = `Overlay: ${mode}`;
-                     } else {
-                          document.getElementById('status-text').textContent = `Error: ${data.message || 'Unknown'}`;
-                     }
-                 })
-                .catch(error => {
-                    console.error('Overlay Error:', error);
-                    document.getElementById('status-text').textContent = `Fetch Error: ${error}`;
-                });
-        }
         
         // === Stream Error Handling ===
         function handleStreamError() {
