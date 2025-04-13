@@ -150,7 +150,7 @@
     <div class="container">
         <!-- Camera Feed -->
         <div class="camera-feed">
-            <img src="{{ stream_url }}" alt="Camera Feed" 
+            <img id="camera-stream" src="{{ stream_url }}" alt="Camera Feed" 
                  onerror="this.src='/static/no-camera.png'; handleStreamError();">
         </div>
         
@@ -170,10 +170,10 @@
             
             <!-- PS4 Button Controls -->
             <div class="ps4-buttons">
-                <button class="ps4-btn triangle" data-button="triangle">Triangle</button>
-                <button class="ps4-btn circle" data-button="circle">Circle</button>
-                <button class="ps4-btn cross" data-button="cross">Cross</button>
-                <button class="ps4-btn square" data-button="square">Square</button>
+                <button class="ps4-btn triangle" data-button="triangle" data-action="toggle_leds">Triangle</button>
+                <button class="ps4-btn circle" data-button="circle" data-action="toggle_knight_rider">Circle</button>
+                <button class="ps4-btn cross" data-button="cross" data-action="clear_effects">Cross</button>
+                <button class="ps4-btn square" data-button="square" data-action="toggle_party_mode">Square</button>
             </div>
         </div>
         
@@ -189,176 +189,166 @@
     </div>
 
     <script>
-        let isMoving = false;
+        let isMoving = {}; // Track movement state per direction
         
-        // Movement control
-        function startMove(direction) {
-            console.log(`Starting movement: ${direction}`);  // Debug log
-            fetch(`/move/${direction}/start`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.status === 'success') {
-                        document.getElementById('status-text').textContent = `Moving: ${direction}`;
-                    } else {
-                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('status-text').textContent = `Error: ${error}`;
-                });
-        }
-        
-        function stopMove(direction) {
-            console.log(`Stopping movement: ${direction}`);  // Debug log
-            fetch(`/move/${direction}/stop`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.status === 'success') {
-                        document.getElementById('status-text').textContent = 'Stopped';
-                    } else {
-                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('status-text').textContent = `Error: ${error}`;
-                });
-        }
-        
-        // PS4 button functions
-        function toggleMode(mode) {
-            fetch(`/toggle/${mode}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateStatus(`${mode} mode: ${data.active ? 'ON' : 'OFF'}`);
-                    } else {
-                        updateStatus('Error: ' + data.message);
-                    }
-                })
-                .catch(error => updateStatus('Error: ' + error));
-        }
-        
-        function toggleLeds() {
-            fetch('/toggle/leds')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateStatus(`Button LEDs: ${data.active ? 'ON' : 'OFF'}`);
-                    } else {
-                        updateStatus('Error: ' + data.message);
-                    }
-                })
-                .catch(error => updateStatus('Error: ' + error));
-        }
-        
-        function updateStatus(text) {
-            document.getElementById('status-text').textContent = text;
-        }
-        
-        // Movement button event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            ['forward', 'backward', 'left', 'right'].forEach(direction => {
-                const button = document.getElementById(direction);
-                if (button) {
-                    button.addEventListener('mousedown', () => startMove(direction));
-                    button.addEventListener('mouseup', () => stopMove(direction));
-                    button.addEventListener('mouseleave', () => stopMove(direction));
-                    button.addEventListener('touchstart', (e) => {
-                        e.preventDefault();
-                        startMove(direction);
-                    });
-                    button.addEventListener('touchend', (e) => {
-                        e.preventDefault();
-                        stopMove(direction);
-                    });
-                }
-            });
+        // === Movement Control ===
+        const moveButtons = {
+            'forward': document.getElementById('forward'),
+            'backward': document.getElementById('backward'),
+            'left': document.getElementById('left'),
+            'right': document.getElementById('right'),
+            'stop': document.getElementById('stop')
+        };
 
-            // Add stop button handler
-            const stopButton = document.getElementById('stop');
-            if (stopButton) {
-                stopButton.addEventListener('click', () => {
-                    fetch('/stop')
-                        .then(response => response.json())
-                        .then(data => {
-                            document.getElementById('status-text').textContent = 'Emergency Stop';
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            document.getElementById('status-text').textContent = `Error: ${error}`;
-                        });
+        function sendMoveCommand(direction, action) {
+            console.log(`Sending command: /move/${direction}/${action}`);
+            fetch(`/move/${direction}/${action}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('status-text').textContent = 
+                            (action === 'start') ? `Moving: ${direction}` : 'Stopped';
+                    } else {
+                        document.getElementById('status-text').textContent = `Error: ${data.message || 'Unknown'}`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Movement Error:', error);
+                    document.getElementById('status-text').textContent = `Fetch Error: ${error}`;
                 });
+        }
+
+        // Add event listeners for movement buttons (mousedown/touchstart and mouseup/touchend)
+        ['forward', 'backward', 'left', 'right'].forEach(direction => {
+            const button = moveButtons[direction];
+            if (button) {
+                const startHandler = (e) => {
+                    e.preventDefault(); // Prevent default touch behavior (like scrolling)
+                    if (!isMoving[direction]) {
+                         isMoving[direction] = true;
+                         button.classList.add('active');
+                         sendMoveCommand(direction, 'start');
+                    }
+                };
+                const stopHandler = (e) => {
+                    e.preventDefault();
+                    if (isMoving[direction]) {
+                         isMoving[direction] = false;
+                         button.classList.remove('active');
+                         sendMoveCommand(direction, 'stop'); 
+                    }
+                };
+                
+                button.addEventListener('mousedown', startHandler);
+                button.addEventListener('touchstart', startHandler);
+                
+                button.addEventListener('mouseup', stopHandler);
+                button.addEventListener('mouseleave', stopHandler); // Stop if mouse leaves button while pressed
+                button.addEventListener('touchend', stopHandler);
+                button.addEventListener('touchcancel', stopHandler);
+            }
+        });
+
+        // Stop button (immediate stop)
+        if (moveButtons.stop) {
+            moveButtons.stop.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Reset all movement states
+                Object.keys(isMoving).forEach(dir => { isMoving[dir] = false; });
+                Object.values(moveButtons).forEach(btn => btn?.classList.remove('active'));
+                sendMoveCommand('all', 'stop'); // Send a general stop 
+            });
+        }
+
+        // === PS4 Button Controls ===
+        const ps4Buttons = document.querySelectorAll('.ps4-btn');
+
+        function sendButtonCommand(buttonName, action) {
+             console.log(`Sending command: /button/${buttonName}/${action}`);
+             fetch(`/button/${buttonName}/${action}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Update status based on returned state if needed
+                        document.getElementById('status-text').textContent = `Action: ${buttonName} ${action}`; 
+                        console.log("Button action success:", data);
+                    } else {
+                        document.getElementById('status-text').textContent = `Error: ${data.message || 'Unknown'}`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Button Command Error:', error);
+                    document.getElementById('status-text').textContent = `Fetch Error: ${error}`;
+                });
+        }
+
+        ps4Buttons.forEach(button => {
+            const buttonName = button.dataset.button;
+            if (buttonName) {
+                 const pressHandler = (e) => {
+                    e.preventDefault();
+                    button.classList.add('active'); 
+                    sendButtonCommand(buttonName, 'press');
+                 };
+                 const releaseHandler = (e) => {
+                    e.preventDefault();
+                    button.classList.remove('active');
+                    sendButtonCommand(buttonName, 'release'); 
+                 };
+
+                 button.addEventListener('mousedown', pressHandler);
+                 button.addEventListener('touchstart', pressHandler);
+                 
+                 button.addEventListener('mouseup', releaseHandler);
+                 button.addEventListener('mouseleave', releaseHandler);
+                 button.addEventListener('touchend', releaseHandler);
+                 button.addEventListener('touchcancel', releaseHandler);
             }
         });
         
-        // Add this to your JavaScript
-        document.querySelector('.camera-feed img').addEventListener('error', function() {
-            updateStatus('Camera feed error - trying to reconnect...');
-            setTimeout(() => {
-                this.src = this.src;  // Attempt to reload the stream
-            }, 5000);  // Try every 5 seconds
-        });
-        
+        // === Overlay Controls ===
         function setOverlay(mode) {
+            console.log(`Setting overlay to: ${mode}`);
             fetch(`/overlay/${mode}`)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        document.getElementById('status-text').textContent = `Mode: ${mode}`;
-                        // Update button styles
-                        document.querySelectorAll('.overlay-btn').forEach(btn => {
-                            btn.style.opacity = '1';
-                        });
-                        event.target.style.opacity = '0.7';
-                    } else {
-                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
-                    }
-                })
+                     if (data.status === 'success') {
+                         document.getElementById('status-text').textContent = `Overlay: ${mode}`;
+                     } else {
+                          document.getElementById('status-text').textContent = `Error: ${data.message || 'Unknown'}`;
+                     }
+                 })
                 .catch(error => {
-                    document.getElementById('status-text').textContent = `Error: ${error}`;
+                    console.error('Overlay Error:', error);
+                    document.getElementById('status-text').textContent = `Fetch Error: ${error}`;
                 });
         }
         
-        function handleButton(button, action) {
-            fetch(`/button/${button}/${action}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        document.getElementById('status-text').textContent = `${button}: ${action}`;
-                    } else {
-                        document.getElementById('status-text').textContent = `Error: ${data.message}`;
-                    }
-                })
-                .catch(error => {
-                    document.getElementById('status-text').textContent = `Error: ${error}`;
-                });
-        }
-        
-        // Add this function to handle stream errors
+        // === Stream Error Handling ===
         function handleStreamError() {
-            console.log("Stream error detected");
-            document.getElementById('status-text').textContent = 'Camera stream error';
-            
-            // Try to reconnect after 5 seconds
-            setTimeout(() => {
-                const img = document.querySelector('.camera-feed img');
-                if (img) {
-                    img.src = "{{ stream_url }}";
-                }
-            }, 5000);
+            console.error("Camera stream failed to load or disconnected.");
+            document.getElementById('status-text').textContent = "Error: Camera stream disconnected";
+            // Optionally try to reload the image after a delay
+            // setTimeout(() => {
+            //    const img = document.getElementById('camera-stream');
+            //    img.src = img.src + '&t=' + new Date().getTime(); // Cache buster
+            // }, 5000); 
         }
+
+        // Initial status
+        document.getElementById('status-text').textContent = 'Ready';
+        console.log("Trilobot control page loaded.");
+
     </script>
 </body>
 </html>

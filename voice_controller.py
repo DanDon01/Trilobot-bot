@@ -38,17 +38,14 @@ except Exception as e_gen:
     logger.error(f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.", exc_info=True)
 
 try:
-    # Try importing specific function first
-    from elevenlabs import generate 
-    # Then other potentially needed parts
-    from elevenlabs import save, set_api_key, voices, Voice 
-    # from elevenlabs.api import History # Keep commented
+    # *** Import the client class ***
+    from elevenlabs.client import ElevenLabs
     ELEVENLABS_AVAILABLE = True
-    logger.info("Successfully imported ElevenLabs functions.")
+    logger.info("Successfully imported ElevenLabs client.")
 except ImportError as e_imp:
-    logger.warning(f"ImportError for ElevenLabs: {e_imp}. Could be missing package or sub-module. Voice synthesis disabled.")
+    logger.warning(f"ImportError for ElevenLabs client: {e_imp}. Could be missing package. Voice synthesis disabled.")
 except Exception as e_gen:
-    logger.error(f"FAILED to import ElevenLabs due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
+    logger.error(f"FAILED to import ElevenLabs client due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
 
 class VoiceController:
     """Controller for voice recognition and synthesis"""
@@ -123,14 +120,23 @@ class VoiceController:
             "help": self._handle_help,
         }
         
-        # ElevenLabs setup if available
+        # *** Initialize ElevenLabs client ***
+        self.eleven_client = None
         if ELEVENLABS_AVAILABLE:
             api_key = config.get("voice", "elevenlabs_api_key")
             if api_key:
-                set_api_key(api_key)
-                log_info("ElevenLabs API key configured from config file")
+                try:
+                    self.eleven_client = ElevenLabs(api_key=api_key)
+                    log_info("ElevenLabs client initialized with API key.")
+                    # Optional: Verify connection or list voices here if needed
+                    # voices_response = self.eleven_client.voices.get_all()
+                    # log_debug(f"Available ElevenLabs voices: {len(voices_response.voices)}")
+                except Exception as e:
+                    log_error(f"Failed to initialize ElevenLabs client: {e}")
+                    ELEVENLABS_AVAILABLE = False # Mark as unavailable if client init fails
             else:
-                log_warning("ElevenLabs API key not found in configuration")
+                log_warning("ElevenLabs API key not found in configuration. TTS generation disabled.")
+                ELEVENLABS_AVAILABLE = False # Mark as unavailable if no key
         
         log_info("Voice Controller initialized")
         
@@ -154,6 +160,7 @@ class VoiceController:
                     log_info(f"Using microphone: {mic_name}")
                     break
                 except Exception as e:
+                    log_warning(f"Skipping mic index {mic_index} ({mic_name}): {e}")
                     continue
             
             if not self.microphone:
@@ -167,18 +174,23 @@ class VoiceController:
             self.recognition_thread.start()
             
             log_info("Voice recognition started")
+            # Use a slight delay before speaking to ensure thread starts
+            time.sleep(0.5)
             self.speak("Voice control activated", "startup")
             return True
         except Exception as e:
-            log_error(f"Error starting voice recognition: {e}")
+            log_error(f"Error starting voice recognition: {e}", exc_info=True)
             return False
     
     def stop(self):
         """Stop voice recognition"""
         if self.recognition_thread and self.recognition_thread.is_alive():
             self.stop_recognition.set()
-            self.recognition_thread.join(timeout=1.0)
-            log_info("Voice recognition stopped")
+            self.recognition_thread.join(timeout=2.0) # Increased timeout slightly
+            if self.recognition_thread.is_alive():
+                 log_warning("Voice recognition thread did not exit cleanly.")
+            else:
+                 log_info("Voice recognition stopped")
             return True
         return False
     
@@ -195,167 +207,221 @@ class VoiceController:
         # Cache handling
         cache_file = os.path.join(self.cache_dir, hashlib.md5(cache_key.encode()).hexdigest() + ".mp3")
         
-        # If not in cache, generate it (if possible)
-        if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE:
-            api_key = config.get("voice", "elevenlabs_api_key")
-            if not api_key:
-                log_warning("No ElevenLabs API key configured, cannot generate new audio.")
-                # Fall through to check if file exists anyway (might have been cached previously)
-            else:
-                try:
-                    # Get the voice name and ID from config
-                    voice_name = config.get("voice", "elevenlabs_voice_id")
-                    voice_id = None
+        # If not in cache, try to generate it (if possible)
+        # *** Check ELEVENLABS_AVAILABLE flag and client instance ***
+        if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE and self.eleven_client:
+            try:
+                # Get the voice name and ID from config
+                voice_name = config.get("voice", "elevenlabs_voice_id", fallback="Josh") # Added fallback
+                model_id = config.get("voice", "elevenlabs_model_id", fallback="eleven_multilingual_v2") # Added configurable model
+                output_format = config.get("voice", "elevenlabs_output_format", fallback="mp3_44100_128") # Added format
+                voice_id = None
+                
+                # Look up the voice ID from the voices dictionary if provided
+                voices_dict = config.get("voice", "elevenlabs_voices", fallback={})
+                if isinstance(voices_dict, dict) and voice_name in voices_dict:
+                    voice_id = voices_dict[voice_name]
+                else:
+                    # Fallback to using the name as the ID directly if not found in mapping
+                    # This assumes the name might be a valid voice ID (common case for default voices)
+                    voice_id = voice_name
                     
-                    # Look up the voice ID from the voices dictionary
-                    voices_dict = config.get("voice", "elevenlabs_voices")
-                    if isinstance(voices_dict, dict) and voice_name in voices_dict:
-                        voice_id = voices_dict[voice_name]
+                log_debug(f"Using ElevenLabs: Voice='{voice_name}' (Resolved ID='{voice_id}'), Model='{model_id}', Format='{output_format}'")
+                
+                # *** Use the client's text_to_speech.convert method ***
+                audio_bytes = self.eleven_client.text_to_speech.convert(
+                    text=text,
+                    voice_id=voice_id, # Pass the resolved voice_id string
+                    model_id=model_id,
+                    output_format=output_format
+                )
+                
+                # Check if we got audio data
+                if not audio_bytes:
+                     raise ValueError("ElevenLabs API returned empty audio data.")
+                     
+                # Save the audio bytes to the cache file
+                with open(cache_file, "wb") as f:
+                    # Iterate over chunks if it's a streaming response (though convert should return bytes)
+                    if hasattr(audio_bytes, '__iter__') and not isinstance(audio_bytes, bytes):
+                         log_debug("Received streaming audio data, writing chunks...")
+                         for chunk in audio_bytes:
+                              if chunk:
+                                   f.write(chunk)
+                    elif isinstance(audio_bytes, bytes):
+                         log_debug("Received bytes audio data, writing directly...")
+                         f.write(audio_bytes)
                     else:
-                        # Fallback to the name as the ID directly if not found in mapping
-                        voice_id = voice_name
-                        
-                    log_debug(f"Using ElevenLabs voice: {voice_name} (ID: {voice_id})")
-                    
-                    # Ensure generate is imported before calling
-                    # (The import happens globally, but this check adds safety)
-                    # We rely on the global import succeeding partially for this to work
-                    from elevenlabs import generate, Voice # Re-import locally just in case? Risky.
-                                                          # Better: Rely on global ELEVENLABS_AVAILABLE flag check above
-                    
-                    audio = generate(
-                        text=text,
-                        voice=Voice(voice_id=voice_id),
-                        model="eleven_monolingual_v1"
-                    )
-                    
-                    with open(cache_file, "wb") as f:
-                        f.write(audio)
-                    log_debug(f"Generated TTS audio and saved to {cache_file}")
+                         raise TypeError(f"Unexpected audio data type from ElevenLabs: {type(audio_bytes)}")
+                         
+                log_debug(f"Generated TTS audio and saved to {cache_file}")
 
-                except NameError as ne:
-                    # This specifically catches if 'generate' wasn't imported successfully
-                    log_error(f"ElevenLabs 'generate' function not available despite check: {ne}")
-                except Exception as e:
-                    log_error(f"Failed to generate TTS for: {text} - {e}")
-                    # Don't return here, still try to play if file exists
+            except Exception as e:
+                log_error(f"Failed to generate TTS using ElevenLabs client for: '{text}' - {e}", exc_info=True)
+                # Don't return here, still try to play if file somehow exists or was created partially
+                
         elif not os.path.exists(cache_file):
-            log_warning(f"TTS generation skipped: ElevenLabs module not available (ELEVENLABS_AVAILABLE={ELEVENLABS_AVAILABLE}).")
+            # Log why generation was skipped
+            if not ELEVENLABS_AVAILABLE:
+                log_warning(f"TTS generation skipped: ElevenLabs not available (check imports/API key). (ELEVENLABS_AVAILABLE={ELEVENLABS_AVAILABLE})")
+            elif not self.eleven_client:
+                 log_warning(f"TTS generation skipped: ElevenLabs client not initialized (check API key/init). (ELEVENLABS_AVAILABLE={ELEVENLABS_AVAILABLE})")
 
         # If the file exists now (either cached or just generated), play it
         if os.path.exists(cache_file):
             self._play_audio(cache_file)
         else:
             # This message now covers cases where generation was skipped or failed
-            log_warning(f"No TTS cache file found or generated for: {text} (Cache Key: {cache_key})")
-            
+            log_warning(f"No TTS cache file found or generated for: '{text}' (Cache Key: {cache_key}) - Playback skipped.")
+
     def _play_audio(self, file_path):
-        """Play the audio file at the given path"""
+        """Play an audio file using pygame mixer"""
         if not self.audio_available:
-            log_debug(f"Audio playback not available, cannot play: {file_path}")
+            log_warning("Audio playback unavailable")
             return
-            
+        
         try:
-            pygame.mixer.music.set_volume(self.volume)
+            # Ensure mixer is not busy
+            while pygame.mixer.music.get_busy():
+                log_debug("Mixer busy, waiting...")
+                time.sleep(0.1)
+                
+            log_debug(f"Playing audio: {file_path}")
             pygame.mixer.music.load(file_path)
+            pygame.mixer.music.set_volume(self.volume)
             pygame.mixer.music.play()
             
-            # Wait for the audio to finish playing
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.1)
-        except Exception as e:
-            log_error(f"Failed to play audio file {file_path}: {e}")
-    
-    def _recognition_loop(self):
-        """Main loop for voice recognition"""
-        log_info("Voice recognition loop started")
-        
-        with self.microphone as source:
-            # Initial adjustment for ambient noise
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            
-            while not self.stop_recognition.is_set():
-                try:
-                    log_info("Listening for commands...")
-                    
-                    # Listen for audio
-                    audio = self.recognizer.listen(source, timeout=None, phrase_time_limit=5)
-                    
-                    # Recognize speech using Google Speech Recognition
-                    try:
-                        text = self.recognizer.recognize_google(audio).lower()
-                        log_info(f"Recognized: {text}")
-                        
-                        # Check for activation phrase
-                        if self.activation_phrase in text:
-                            # Remove activation phrase for command processing
-                            command = text.replace(self.activation_phrase, "").strip()
-                            self._process_command(command)
-                        
-                    except sr.UnknownValueError:
-                        log_debug("Google Speech Recognition could not understand audio")
-                    except sr.RequestError as e:
-                        log_error(f"Could not request results from Google Speech Recognition service: {e}")
+            # Wait for playback to finish (optional, can remove if async is desired)
+            # while pygame.mixer.music.get_busy():
+            #     time.sleep(0.1)
+            # log_debug("Audio playback finished")
                 
-                except Exception as e:
-                    log_error(f"Error in voice recognition: {e}")
-                    time.sleep(1)  # Pause briefly before trying again
-    
+        except pygame.error as e:
+            log_error(f"Error playing audio file {file_path}: {e}")
+        except Exception as e:
+            log_error(f"Unexpected error during audio playback: {e}", exc_info=True)
+
+    def _recognition_loop(self):
+        """Main loop for listening and processing voice commands"""
+        if not self.microphone or not self.recognizer:
+            log_error("Recognition loop cannot start: mic or recognizer not initialized.")
+            return
+            
+        log_info("Voice recognition loop started")
+        active_listening = False # Flag to track if activation phrase was heard
+        last_active_time = 0
+        timeout_duration = config.get("voice", "timeout_duration", fallback=10)
+
+        while not self.stop_recognition.is_set():
+            log_debug("Listening for audio...")
+            with self.microphone as source:
+                try:
+                    # Listen for audio input
+                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=5)
+                except sr.WaitTimeoutError:
+                    log_debug("No speech detected in timeout period.")
+                    # Check if we were actively listening and timed out
+                    if active_listening and (time.time() - last_active_time > timeout_duration):
+                         log_info("Command listening timed out.")
+                         active_listening = False
+                    continue
+                except Exception as listen_e:
+                     log_error(f"Error during audio listening: {listen_e}")
+                     time.sleep(1) # Avoid busy-looping on persistent errors
+                     continue
+
+            try:
+                # Recognize speech using Google Web Speech API
+                text = self.recognizer.recognize_google(audio).lower()
+                log_info(f"Voice received: '{text}'")
+
+                # Check for activation phrase if not already listening
+                if not active_listening:
+                    if self.activation_phrase in text:
+                        log_info("Activation phrase detected!")
+                        active_listening = True
+                        last_active_time = time.time()
+                        # Optional: Provide audio feedback
+                        self.speak("Yes?", "activation_confirm") 
+                        # Process command immediately if activation phrase was the only thing said
+                        command_part = text.replace(self.activation_phrase, "").strip()
+                        if command_part:
+                             self._process_command(command_part)
+                        else:
+                             log_info("Waiting for command after activation...")
+                    else:
+                        log_debug("Ignoring speech (activation phrase not detected).")
+                else:
+                    # Already actively listening, process the command
+                    self._process_command(text)
+                    # Reset active listening after processing a command
+                    active_listening = False 
+                    
+            except sr.UnknownValueError:
+                log_warning("Could not understand audio")
+                if active_listening:
+                     # Maybe provide feedback if we were expecting a command
+                     # self.speak("Sorry, I didn't catch that.", "unknown_value")
+                     # Consider resetting active_listening here too, or keep listening briefly?
+                     pass 
+            except sr.RequestError as e:
+                log_error(f"Could not request results from Google Speech Recognition service; {e}")
+                # Might indicate network issues
+                active_listening = False # Reset on network error
+            except Exception as recog_e:
+                 log_error(f"Error during voice recognition processing: {recog_e}", exc_info=True)
+                 active_listening = False # Reset on unexpected errors
+
+        log_info("Voice recognition loop finished.")
+
     def _process_command(self, command):
-        """Process recognized voice command"""
-        log_info(f"Processing command: {command}")
+        """Process recognized command text"""
+        log_info(f"Processing command: '{command}'")
+        processed = False
         
         # Check special commands first
-        for key, handler in self.special_commands.items():
-            if key in command:
+        for phrase, handler in self.special_commands.items():
+            if command == phrase:
                 handler(command)
-                return
+                processed = True
+                break
         
-        # Check control actions
+        if processed: return
+        
+        # Check mapped control actions
         for phrase, action in self.command_map.items():
-            if phrase in command:
-                log_info(f"Executing action: {action}")
-                control_manager.execute_action(action, source="voice")
-                self.speak(f"Executing {phrase}", f"confirm_{phrase}")
-                return
-        
-        # If no command matched
-        log_warning(f"Unrecognized command: {command}")
-        self.speak("I'm sorry, I didn't understand that command", "unknown_command")
-    
-    def _handle_hello(self, command):
-        """Handle hello command"""
-        self.speak("Hello! I'm Trilobot. How can I help you today?", "hello")
-    
-    def _handle_status(self, command):
-        """Handle status command"""
-        movement = state_tracker.get_state('movement')
-        led_mode = state_tracker.get_state('led_mode')
-        
-        status_text = f"I am currently {movement}. "
-        
-        if led_mode != 'off':
-            status_text += f"My LED mode is set to {led_mode}. "
-        
-        self.speak(status_text, "status_report")
-    
-    def _handle_who_are_you(self, command):
-        """Handle identity questions"""
-        self.speak(
-            "I am Trilobot, a robotic platform built with a Raspberry Pi. "
-            "I can move around, detect objects, and respond to voice commands. "
-            "I'm here to assist and entertain you!",
-            "identity"
-        )
-    
-    def _handle_help(self, command):
-        """Handle help command"""
-        help_text = (
-            "I can respond to commands like: move forward, move backward, "
-            "turn left, turn right, stop, take photo, party mode, and more. "
-            "You can also ask me about my status or who I am."
-        )
-        self.speak(help_text, "help")
+            if command == phrase:
+                log_info(f"Executing action: {action.name} from voice command: '{command}'")
+                control_manager.add_action(action, source="voice")
+                processed = True
+                break
+                
+        if not processed:
+            log_warning(f"Unknown command: '{command}'")
+            # Optional: Provide feedback for unknown commands
+            self.speak(f"Sorry, I don't understand '{command}'.", f"unknown_cmd_{command[:20]}")
 
-# Create global voice controller instance
+    def _handle_hello(self, command):
+        self.speak("Hello there!", "hello_reply")
+
+    def _handle_status(self, command):
+        # Gather some basic status
+        # TODO: Get more detailed status from state_tracker or other modules
+        control_mode = state_tracker.get_state("control_mode")
+        movement = state_tracker.get_state("movement")
+        camera_mode = state_tracker.get_state("camera_mode")
+        response = f"Current control mode is {control_mode}. Movement is {movement}. Camera is in {camera_mode} mode."
+        self.speak(response, "status_reply")
+
+    def _handle_who_are_you(self, command):
+        response = "I am Trilobot, a robot controlled by this Raspberry Pi."
+        self.speak(response, "who_are_you_reply")
+
+    def _handle_help(self, command):
+        # List some basic commands
+        basic_commands = ["move forward", "turn left", "stop", "knight rider", "take photo", "status"]
+        response = f"You can ask me to: {', '.join(basic_commands)}. Say '{self.activation_phrase}' first if I'm not listening."
+        self.speak(response, "help_reply")
+
+# Singleton instance
 voice_controller = VoiceController() 
