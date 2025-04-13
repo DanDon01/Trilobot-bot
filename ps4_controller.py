@@ -492,271 +492,331 @@ class PS4Controller:
             log_error(f"Error stopping PS4 controller input: {e}")
             return False
     
+    # --- Reverted to evdev with non-blocking read ---
     def _input_loop(self):
-        """Simplified loop to test basic evdev event reading."""
-        log_info("Starting PS4 controller input loop (SIMPLIFIED TEST - read_loop).")
+        """Input loop using evdev with non-blocking read."""
+        log_info("Starting PS4 controller input loop (using evdev non-blocking).")
         if not self.device:
-            log_error("Input loop started without a valid controller device.")
+            log_error("Input loop (evdev) started without a valid controller device.")
             self.running = False
             return
 
+        # Ensure we have the correct device path if the object was recreated
+        try:
+             device_path = self.device.path
+        except Exception:
+             log_error("Could not get device path from self.device.")
+             self.running = False
+             return
+
         local_device = None
-        device_path = self.device.path
         thread_name = threading.current_thread().name
         log_info(f"Input thread '{thread_name}' started for {device_path}.")
 
         try:
-            log_info(f"Attempting to open device {device_path} for read_loop...")
+            log_info(f"Attempting to open device {device_path} for evdev loop...")
+            # Re-open the device in the thread context
             local_device = InputDevice(device_path)
-            log_info(f"Device {device_path} opened successfully.")
-            
-            # --- GRAB DISABLED --- 
+            log_info(f"Device {device_path} opened successfully for evdev.")
+
+            # --- GRAB DISABLED ---
             # try:
             #     log_info(f"Attempting to grab exclusive access to {device_path}...")
-            #     # local_device.grab() # <-- Comment out grab
-            #     log_info(f"Successfully grabbed {device_path}.") # <-- Log message might be misleading now
+            #     # local_device.grab() # Keep grab commented out
+            #     log_info(f"Grab() skipped for {device_path}.")
             # except OSError as grab_err:
-            #     if 'Operation not permitted' in str(grab_err):
-            #         log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
-            #     else:
-            #         log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
+            #     log_error(f"Permission error grabbing {device_path}: {grab_err}")
             # except Exception as grab_ex:
-            #     log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
+            #     log_warning(f"Unexpected error during grab() attempt: {grab_ex}")
             # --- END GRAB DISABLED ---
 
             event_count = 0
-            log_info(f"Entering blocking read_loop for {device_path}... Loop will only print events.")
-            
-            # Use the read_loop generator - SIMPLIFIED PROCESSING
-            for event in local_device.read_loop():
-                # Check stop condition *inside* the loop
-                if self.stop_input.is_set():
-                    log_info(f"Stop signal received during read_loop ({thread_name}), exiting loop.")
-                    break 
-                    
+            log_info(f"Entering non-blocking evdev read loop for {device_path}...")
+
+            while not self.stop_input.is_set():
+                event = local_device.read_one()
+                if event is None:
+                    # No event available, sleep briefly and check stop flag
+                    time.sleep(0.01)
+                    continue
+
+                # If we reach here, an event was received
                 event_count += 1
-                # Log ALL events received at DEBUG level
-                log_debug(f"--- SIMPLIFIED LOOP: Event {event_count} received --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
-                
-                # --- NO PROCESSING HERE --- 
-                # processed = False
-                # if event.type == ecodes.EV_KEY:
-                #     self._process_button_event(event)
-                #     processed = True
-                # elif event.type == ecodes.EV_ABS:
-                #     self._process_axis_event(event)
-                #     processed = True
-                # 
-                # # Recalculate movement after any relevant event
-                # if processed:
-                #     self._process_movement()
-                # --- END NO PROCESSING --- 
-                    
+                log_debug(f"--- EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+
+                # --- Process the event ---
+                processed = False
+                if event.type == ecodes.EV_KEY:
+                    self._process_button_event(event) # Use the existing evdev processor
+                    processed = True
+                elif event.type == ecodes.EV_ABS:
+                    self._process_axis_event(event)   # Use the existing evdev processor
+                    processed = True
+                elif event.type == ecodes.EV_SYN:
+                    # Sync event often follows a burst of axis events
+                    log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
+                    # Trigger movement processing after sync if axes might have changed
+                    if self.axes_changed_since_last_sync: # Need to add this flag logic
+                         self._process_movement()
+                         self.axes_changed_since_last_sync = False
+                    processed = False # Don't re-trigger movement below for Sync
+                else:
+                    log_debug(f"Unhandled EVDEV event type: {event.type}")
+
+
+                # Recalculate movement only after relevant axis/key events (excluding Sync)
+                # Modify process_axis_event to set a flag
+                # self.axes_changed_since_last_sync = False # Reset flag (handled in _process_movement)
+                # if processed and event.type == ecodes.EV_ABS:
+                #    self.axes_changed_since_last_sync = True
+                # We'll process movement on SYN events instead
+
         except BlockingIOError:
-            log_warning(f"BlockingIOError caught during read_loop ({thread_name}).")
-            pass 
+            # This shouldn't happen with read_one() but handle just in case
+            log_warning(f"BlockingIOError caught unexpectedly during read_one() ({thread_name}).")
+            time.sleep(0.05)
         except OSError as e:
-            log_error(f"Controller disconnected or read error in read_loop ({thread_name}): {e}")
-            self.device = None 
+            # This usually means the controller disconnected
+            log_error(f"Controller disconnected or read error in evdev loop ({thread_name}): {e}")
+            self.device = None # Mark as disconnected
+            self.running = False # Ensure loop stops externally if thread dies
+            # Attempt to trigger cleanup/reconnect logic if needed
         except Exception as e:
-            log_error(f"Unexpected error in input loop ({thread_name}): {e}", exc_info=True)
+            log_error(f"Unexpected error in evdev input loop ({thread_name}): {e}", exc_info=True)
         finally:
-            log_info(f"Exiting PS4 controller read_loop ({thread_name}).")
+            log_info(f"Exiting PS4 controller evdev loop ({thread_name}).")
             if local_device:
                 # --- UNGRAB DISABLED ---
-                # try:
-                #     if local_device.fileno() != -1: 
-                #         log_debug(f"Attempting to ungrab {device_path}")
-                #         # local_device.ungrab() # <-- Comment out ungrab
-                #     else:
-                #         log_debug(f"Device {device_path} already closed, skipping ungrab.")
-                # except Exception as ungrab_err:
-                #     log_warning(f"Error ungrabbing device {device_path}: {ungrab_err}")
+                # try: ... ungrab logic ...
                 # --- END UNGRAB DISABLED ---
                 try:
                     if local_device.fileno() != -1:
-                        log_debug(f"Attempting to close device {device_path}")
+                        log_debug(f"Attempting to close evdev device {device_path}")
                         local_device.close()
                     else:
-                        log_debug(f"Device {device_path} already closed, skipping close.")
+                        log_debug(f"Evdev device {device_path} already closed.")
                 except Exception as close_err:
-                    log_warning(f"Error closing device {device_path}: {close_err}")
-            self.running = False 
-            log_info(f"PS4 controller input loop finished ({thread_name}).")
+                    log_warning(f"Error closing evdev device {device_path}: {close_err}")
+            self.running = False # Ensure state reflects loop stop
+            log_info(f"PS4 controller evdev input loop finished ({thread_name}).")
 
     def _process_button_event(self, event):
-        """Process button press/release events"""
+        """Process button press/release events (evdev)"""
+        # Check if button code exists in our map
         button_name = self.button_map.get(event.code)
         if button_name:
-            is_pressed = (event.value == 1)
+            is_pressed = (event.value == 1) # 1 for press, 0 for release, 2 for repeat (treat repeat as press)
             self.buttons[button_name] = is_pressed
-            log_debug(f"Button event: {button_name} {'pressed' if is_pressed else 'released'}")
-            
+            log_debug(f"EVDEV Button event: {button_name} {'pressed' if is_pressed else 'released'} (val: {event.value})")
+
             # Trigger actions based on button press (not release)
-            if is_pressed:
+            if is_pressed: # Only trigger on initial press (value 1) or repeat (value 2)
                  action = None
-                 if button_name == 'x':
-                     # Example: Stop motors
-                     action = ControlAction.STOP
-                     log_info("PS4: X pressed -> STOP")
-                 elif button_name == 'triangle':
-                     # Example: Take photo
-                     action = ControlAction.TAKE_PHOTO
-                     log_info("PS4: Triangle pressed -> TAKE_PHOTO")
-                 elif button_name == 'circle':
-                      # Example: Toggle Knight Rider
-                      action = ControlAction.TOGGLE_KNIGHT_RIDER
-                      log_info("PS4: Circle pressed -> TOGGLE_KNIGHT_RIDER")
-                 elif button_name == 'square':
-                      # Example: Toggle Party Mode
-                      action = ControlAction.TOGGLE_PARTY_MODE
-                      log_info("PS4: Square pressed -> TOGGLE_PARTY_MODE")
+                 if button_name == 'x': action = ControlAction.STOP
+                 elif button_name == 'triangle': action = ControlAction.TAKE_PHOTO
+                 elif button_name == 'circle': action = ControlAction.TOGGLE_KNIGHT_RIDER
+                 elif button_name == 'square': action = ControlAction.TOGGLE_PARTY_MODE
                  # Add other button actions here...
-                 
+
                  if action:
                      # Ensure controller has priority before sending action
+                     if control_manager.current_mode == ControlMode.PS4:
+                          log_info(f"PS4 Event: {button_name} pressed -> {action.name}")
+                          control_manager.execute_action(action, source="ps4")
+                     else:
+                          log_warning(f"PS4 action {action.name} ignored, current mode is {control_manager.current_mode}")
+
+    def _process_axis_event(self, event):
+        """Process joystick/trigger events (evdev)"""
+        # Check if axis code exists in our map
+        axis_name = self.axis_map.get(event.code)
+        if axis_name:
+            # Normalize axis value from 0-255 (triggers) or ~-32k to +32k (sticks) to -1 to 1 or 0 to 1
+            if 'l2' in axis_name or 'r2' in axis_name: # Check includes button and analog trigger
+                # Triggers 0 to 255 -> 0 to 1
+                value = event.value / 255.0
+            elif 'dpad' in axis_name:
+                 # Dpad -1, 0, 1 - Keep as is
+                 value = float(event.value) # Ensure float
+            else:
+                # Sticks roughly -32768 to 32767 -> -1 to 1
+                # Use 32768 for normalization to be safe
+                value = event.value / 32768.0
+                # Clamp value to ensure it's within -1 to 1 range
+                value = max(-1.0, min(1.0, value))
+
+            # Update only if value has changed significantly
+            if abs(self.axes.get(axis_name, -99) - value) > 0.01: # Use dummy value for first check
+                 self.axes[axis_name] = value
+                 self.axes_changed_since_last_sync = True # Flag that movement needs recalculating
+                 log_debug(f"EVDEV Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
+
+    def _process_movement(self):
+        """Process movement based on joystick positions (uses self.axes)"""
+        # Tank drive mode - left stick controls left track, right stick controls right track
+        # Get current values, default to 0 if not yet set
+        left_y = -self.axes.get('left_y', 0.0)  # Invert Y axis so positive is forward
+        right_y = -self.axes.get('right_y', 0.0) # Invert Y axis so positive is forward
+
+        # Apply deadzone
+        left_y_deadzoned = 0 if abs(left_y) < self.deadzone else left_y
+        right_y_deadzoned = 0 if abs(right_y) < self.deadzone else right_y
+        
+        # Scale by max speed
+        target_left_speed = left_y_deadzoned * self.max_speed
+        target_right_speed = right_y_deadzoned * self.max_speed
+
+        # --- Get current actual speeds (assuming robot object has getter or we track them) ---
+        # Placeholder: Assume we can get current speeds. If not, we might skip acceleration.
+        current_left_speed = self.speeds.get("left", 0.0)
+        current_right_speed = self.speeds.get("right", 0.0)
+        # --- End Placeholder ---
+
+        # --- Simple Acceleration (Optional) ---
+        # Move current speed towards target speed by acceleration factor
+        # accel_factor = config.get("movement", "acceleration", fallback=1.0) # Get from config, default 1 (no accel)
+        # final_left_speed = current_left_speed + copysign(accel_factor * 0.1, target_left_speed - current_left_speed) # Example step
+        # final_right_speed = current_right_speed + copysign(accel_factor * 0.1, target_right_speed - current_right_speed) # Example step
+        # # Clamp speeds to target and max_speed limits
+        # final_left_speed = max(-self.max_speed, min(self.max_speed, final_left_speed))
+        # final_right_speed = max(-self.max_speed, min(self.max_speed, final_right_speed))
+        # # Refine clamping based on direction towards target
+        # if (target_left_speed >= current_left_speed and final_left_speed > target_left_speed) or \
+        #    (target_left_speed <= current_left_speed and final_left_speed < target_left_speed):
+        #      final_left_speed = target_left_speed
+        # if (target_right_speed >= current_right_speed and final_right_speed > target_right_speed) or \
+        #    (target_right_speed <= current_right_speed and final_right_speed < target_right_speed):
+        #      final_right_speed = target_right_speed
+        # --- End Simple Acceleration ---
+
+        # --- Use target speed directly (no acceleration) ---
+        final_left_speed = target_left_speed
+        final_right_speed = target_right_speed
+        # --- End Direct Speed ---
+
+
+        # Set motor speeds only if they have changed significantly or if stopping
+        needs_update = False
+        if abs(final_left_speed - current_left_speed) > 0.01 or abs(final_right_speed - current_right_speed) > 0.01:
+             needs_update = True
+        elif final_left_speed == 0 and final_right_speed == 0 and (current_left_speed != 0 or current_right_speed != 0):
+             # Explicitly stop if sticks centered and motors were moving
+             needs_update = True
+
+        if needs_update:
+            log_debug(f"Updating motor speeds: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
+            # Check if control mode is still PS4 before sending hardware commands
+            if control_manager.current_mode == ControlMode.PS4:
+                if final_left_speed == 0 and final_right_speed == 0:
+                    self.robot.disable_motors()
+                    movement_state = 'stopped'
+                else:
+                    self.robot.set_left_speed(final_left_speed)
+                    self.robot.set_right_speed(final_right_speed)
+                    # Determine movement state for logging/state tracking
+                    if final_left_speed > 0 and final_right_speed > 0: movement_state = 'forward'
+                    elif final_left_speed < 0 and final_right_speed < 0: movement_state = 'backward'
+                    elif abs(final_left_speed) < 0.1 and abs(final_right_speed) < 0.1: movement_state = 'stopped' # Catch near zero case
+                    elif final_left_speed < final_right_speed: movement_state = 'right' # Turning right: Left forward, Right back/slower
+                    elif final_left_speed > final_right_speed: movement_state = 'left'  # Turning left: Right forward, Left back/slower
+                    else: movement_state = 'complex_turn' # Both turning diff directions but not pure left/right
+
+                # Update internal speed tracking and state tracker
+                self.speeds["left"] = final_left_speed
+                self.speeds["right"] = final_right_speed
+                state_tracker.update_state('movement', movement_state)
+            else:
+                 log_warning(f"Movement ignored, current mode is {control_manager.current_mode}")
+
+
+# Create global PS4 controller instance
+ps4_controller = PS4Controller()
+# Add the flag needed for SYN event processing
+ps4_controller.axes_changed_since_last_sync = False
+
+# --- New Input Loop using 'inputs' library ---
+def _input_loop_inputs(self):
+    log_info("Starting PS4 controller input loop (using 'inputs' library).")
+    thread_name = threading.current_thread().name
+    while not self.stop_input.is_set():
+        try:
+            log_debug(f"[{thread_name}] Gamepads: {inputs.devices.gamepads}")
+            events = inputs.get_gamepad()
+            log_debug(f"[{thread_name}] Events: {events}")
+            for event in events:
+                if self.stop_input.is_set():
+                    break
+                self._process_inputs_event(event)
+        except inputs.UnpluggedError as e:
+            log_error(f"[{thread_name}] UnpluggedError: {e}, Gamepads: {inputs.devices.gamepads}")
+            self.device = None
+            self.running = False
+            break
+        except Exception as e:
+            log_error(f"[{thread_name}] Error: {e}")
+            time.sleep(1)
+
+    log_info(f"Exiting PS4 controller inputs loop ({thread_name}).")
+    self.running = False
+    log_info(f"PS4 controller input loop finished ({thread_name}).")
+    
+def _process_inputs_event(self, event):
+    """Process a single event from the 'inputs' library."""
+    processed = False
+    if event.ev_type == 'Key': # Button Event
+        button_name = self.inputs_button_map.get(event.code)
+        if button_name:
+            is_pressed = (event.state == 1)
+            self.buttons[button_name] = is_pressed
+            log_debug(f"INPUTS Button: {button_name} {'pressed' if is_pressed else 'released'}")
+            
+            # Trigger actions (same logic as before for now)
+            if is_pressed:
+                action = None
+                if button_name == 'x': action = ControlAction.STOP
+                elif button_name == 'triangle': action = ControlAction.TAKE_PHOTO
+                elif button_name == 'circle': action = ControlAction.TOGGLE_KNIGHT_RIDER
+                elif button_name == 'square': action = ControlAction.TOGGLE_PARTY_MODE
+                 
+                if action:
                      if control_manager.current_mode == ControlMode.PS4:
                           control_manager.execute_action(action, source="ps4")
                      else:
                           log_warning(f"PS4 action {action} ignored, current mode is {control_manager.current_mode}")
-
-    def _process_axis_event(self, event):
-        """Process joystick/trigger events"""
-        axis_name = self.axis_map.get(event.code)
+            processed = True
+    elif event.ev_type == 'Absolute': # Axis Event (Sticks, Triggers, DPad)
+        axis_name = self.inputs_axis_map.get(event.code)
         if axis_name:
-            # Normalize axis value from 0-255 (triggers) or ~-32k to +32k (sticks) to -1 to 1 or 0 to 1
-            if 'trigger' in axis_name or 'l2' in axis_name or 'r2' in axis_name:
-                # Triggers 0 to 255 -> 0 to 1
-                value = event.value / 255.0
-            elif 'dpad' in axis_name:
-                 # Dpad -1, 0, 1 - Keep as is for now
-                 value = event.value
-            else:
-                # Sticks roughly -32768 to 32767 -> -1 to 1
-                value = event.value / 32767.0
-                # Clamp value to ensure it's within -1 to 1 range
-                value = max(-1.0, min(1.0, value))
-                
-            self.axes[axis_name] = value
-            log_debug(f"Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
-    
-    def _process_movement(self):
-        """Process movement based on joystick positions"""
-        # Tank drive mode - left stick controls left track, right stick controls right track
-        left_y = -self.axes['left_y']  # Invert Y axis so positive is forward
-        right_y = -self.axes['right_y']  # Invert Y axis so positive is forward
-        
-        # Apply deadzone and scale by max speed
-        left_speed = 0 if abs(left_y) < self.deadzone else left_y * self.max_speed
-        right_speed = 0 if abs(right_y) < self.deadzone else right_y * self.max_speed
-        
-        # Set motor speeds directly if values have changed
-        if left_speed != 0 or right_speed != 0:
-            control_manager.robot.set_left_speed(left_speed)
-            control_manager.robot.set_right_speed(right_speed)
+            scale = self.inputs_axis_scale.get(event.code, 1.0)
+            # Normalize axis value
+            if 'ABS_Z' in event.code or 'ABS_RZ' in event.code: # Triggers usually 0 to max
+                 value = event.state / scale
+            elif 'ABS_HAT' in event.code: # Dpad usually -1, 0, 1
+                 value = event.state 
+            else: # Sticks usually -max to +max
+                 value = event.state / scale
+                 
+            # Clamp value
+            value = max(-1.0, min(1.0, value)) if 'ABS_HAT' not in event.code else value
             
-            # Update state tracker for movement direction
-            if left_speed > 0 and right_speed > 0:
-                movement = 'forward'
-            elif left_speed < 0 and right_speed < 0:
-                movement = 'backward'
-            elif left_speed < right_speed:
-                movement = 'right'
-            elif left_speed > right_speed:
-                movement = 'left'
-            else:
-                movement = 'stopped'
-                
-            state_tracker.update_state('movement', movement)
-        elif left_speed == 0 and right_speed == 0 and (
-                self.axes['left_y'] == 0 and self.axes['right_y'] == 0):
-            # Stop motors if sticks are centered
-            control_manager.robot.disable_motors()
-            state_tracker.update_state('movement', 'stopped')
-
-    # --- New Input Loop using 'inputs' library ---
-    def _input_loop_inputs(self):
-        log_info("Starting PS4 controller input loop (using 'inputs' library).")
-        thread_name = threading.current_thread().name
-        while not self.stop_input.is_set():
-            try:
-                log_debug(f"[{thread_name}] Gamepads: {inputs.devices.gamepads}")
-                events = inputs.get_gamepad()
-                log_debug(f"[{thread_name}] Events: {events}")
-                for event in events:
-                    if self.stop_input.is_set():
-                        break
-                    self._process_inputs_event(event)
-            except inputs.UnpluggedError as e:
-                log_error(f"[{thread_name}] UnpluggedError: {e}, Gamepads: {inputs.devices.gamepads}")
-                self.device = None
-                self.running = False
-                break
-            except Exception as e:
-                log_error(f"[{thread_name}] Error: {e}")
-                time.sleep(1)
-
-        log_info(f"Exiting PS4 controller inputs loop ({thread_name}).")
-        self.running = False
-        log_info(f"PS4 controller input loop finished ({thread_name}).")
-        
-    def _process_inputs_event(self, event):
-        """Process a single event from the 'inputs' library."""
-        processed = False
-        if event.ev_type == 'Key': # Button Event
-            button_name = self.inputs_button_map.get(event.code)
-            if button_name:
-                is_pressed = (event.state == 1)
-                self.buttons[button_name] = is_pressed
-                log_debug(f"INPUTS Button: {button_name} {'pressed' if is_pressed else 'released'}")
-                
-                # Trigger actions (same logic as before for now)
-                if is_pressed:
-                    action = None
-                    if button_name == 'x': action = ControlAction.STOP
-                    elif button_name == 'triangle': action = ControlAction.TAKE_PHOTO
-                    elif button_name == 'circle': action = ControlAction.TOGGLE_KNIGHT_RIDER
-                    elif button_name == 'square': action = ControlAction.TOGGLE_PARTY_MODE
-                     
-                    if action:
-                         if control_manager.current_mode == ControlMode.PS4:
-                              control_manager.execute_action(action, source="ps4")
-                         else:
-                              log_warning(f"PS4 action {action} ignored, current mode is {control_manager.current_mode}")
+            # Update internal state only if changed significantly 
+            # (helps reduce noise for slightly jittery axes)
+            if abs(self.axes.get(axis_name, 0) - value) > 0.01:
+                self.axes[axis_name] = value
+                log_debug(f"INPUTS Axis: {axis_name} = {value:.2f} (raw: {event.state})")
                 processed = True
-        elif event.ev_type == 'Absolute': # Axis Event (Sticks, Triggers, DPad)
-            axis_name = self.inputs_axis_map.get(event.code)
-            if axis_name:
-                scale = self.inputs_axis_scale.get(event.code, 1.0)
-                # Normalize axis value
-                if 'ABS_Z' in event.code or 'ABS_RZ' in event.code: # Triggers usually 0 to max
-                     value = event.state / scale
-                elif 'ABS_HAT' in event.code: # Dpad usually -1, 0, 1
-                     value = event.state 
-                else: # Sticks usually -max to +max
-                     value = event.state / scale
-                     
-                # Clamp value
-                value = max(-1.0, min(1.0, value)) if 'ABS_HAT' not in event.code else value
-                
-                # Update internal state only if changed significantly 
-                # (helps reduce noise for slightly jittery axes)
-                if abs(self.axes.get(axis_name, 0) - value) > 0.01:
-                    self.axes[axis_name] = value
-                    log_debug(f"INPUTS Axis: {axis_name} = {value:.2f} (raw: {event.state})")
-                    processed = True
-        elif event.ev_type == 'Sync':
-             # Sync events indicate end of a burst of related events
-             # We might trigger movement processing here instead of after every axis event
-             # log_debug("Sync event received")
-             pass # Don't set processed=True for Sync
-        else:
-            # Log other event types if needed
-            log_debug(f"INPUTS Unhandled Event Type: {event.ev_type} Code: {event.code} State: {event.state}")
+    elif event.ev_type == 'Sync':
+         # Sync events indicate end of a burst of related events
+         # We might trigger movement processing here instead of after every axis event
+         # log_debug("Sync event received")
+         pass # Don't set processed=True for Sync
+    else:
+        # Log other event types if needed
+        log_debug(f"INPUTS Unhandled Event Type: {event.ev_type} Code: {event.code} State: {event.state}")
 
-        # Recalculate movement if a relevant event was processed
-        if processed and event.ev_type == 'Absolute': # Only update movement on axis changes
-            self._process_movement()
+    # Recalculate movement if a relevant event was processed
+    if processed and event.ev_type == 'Absolute': # Only update movement on axis changes
+        self._process_movement()
 
 # Create global PS4 controller instance
 ps4_controller = PS4Controller() 
