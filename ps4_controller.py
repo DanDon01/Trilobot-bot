@@ -697,18 +697,22 @@ class PS4Controller:
                               except Exception as e:
                                   log_error(f"Error toggling party mode: {e}")
                           elif action == ControlAction.TAKE_PHOTO:
-                              log_info("DIRECTLY taking photo")
+                              log_info("DIRECTLY taking photo from PS4 button")
                               try:
-                                  # Use the same code as in control_manager._handle_take_photo
+                                  # Import camera_processor directly for photo capture
                                   from camera_processor import camera_processor
+                                  # Call the take_photo method to save the current frame
                                   filepath = camera_processor.take_photo()
+                                  
                                   if filepath:
-                                      log_info(f"Photo captured: {filepath}")
+                                      log_info(f"PS4 button: Photo captured successfully: {filepath}")
+                                      state_tracker.update_state('camera_mode', 'photo_taken')
                                   else:
-                                      log_warning("Failed to capture photo (camera processor reported failure)")
-                                  state_tracker.update_state('camera_mode', 'photo_taken')
+                                      log_warning("PS4 button: Failed to capture photo")
                               except Exception as e:
-                                  log_error(f"Error taking photo: {e}")
+                                  log_error(f"PS4 button: Error taking photo: {e}")
+                                  import traceback
+                                  log_error(f"Photo error traceback: {traceback.format_exc()}")
                           
                           # Still try the regular action execution
                           success = control_manager.execute_action(action, source="ps4")

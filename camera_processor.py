@@ -164,116 +164,61 @@ class CameraProcessor:
             log_error(f"Error stopping camera processor: {e}")
     
     def take_photo(self):
-        """Capture a still photo"""
-        if not hardware_available or not self.camera:
-            log_warning(f"Hardware not available. Cannot take photo. Error: {self.hardware_error}")
-            return None
-            
+        """Capture a still photo by saving the current frame from the stream"""
         try:
-            # Use absolute path for captures directory
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Use absolute paths
             script_dir = os.path.dirname(os.path.abspath(__file__))
             capture_dir_abs = os.path.join(script_dir, self.capture_dir)
             
-            # Ensure the capture directory exists
+            # Create captures directory if it doesn't exist
             if not os.path.exists(capture_dir_abs):
-                log_info(f"Creating capture directory at absolute path: {capture_dir_abs}")
+                log_info(f"Creating capture directory at: {capture_dir_abs}")
                 os.makedirs(capture_dir_abs, exist_ok=True)
-                
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filepath = os.path.join(capture_dir_abs, f"photo_{timestamp}.jpg")
+            log_info(f"Taking photo and saving to: {filepath}")
             
-            # More detailed logging
-            log_info(f"Photo capture requested. Path: {filepath}")
-            
-            # Try main capture method first
-            capture_success = False
-            
-            # Capture image
-            log_info("Stopping recording to take photo...")
-            was_recording = self.running
-            
-            if was_recording:
-                try:
-                    self.camera.stop_recording()
-                    # Capture and save directly to file
-                    log_info(f"Capturing photo directly to {filepath}...")
-                    self.camera.capture_file(filepath)
-                    capture_success = os.path.exists(filepath) and os.path.getsize(filepath) > 0
-                    
-                    if capture_success:
-                        log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
-                    else:
-                        log_warning(f"Direct capture appeared to succeed but file is missing or empty")
-                        
-                except Exception as direct_capture_error:
-                    log_error(f"Error during direct capture: {direct_capture_error}")
-                    
-                # Always restart recording
-                try:
-                    log_info("Restarting recording...")
-                    encoder = MJPEGEncoder(bitrate=8000000)
-                    self.camera.start_recording(encoder, FileOutput(self.output))
-                    self.running = True
-                except Exception as restart_error:
-                    log_error(f"Failed to restart recording: {restart_error}")
-                    self.running = False
-            else:
-                try:
-                    # If not recording, just do a direct capture
-                    log_info(f"Direct capture (not recording) to {filepath}...")
-                    self.camera.capture_file(filepath)
-                    capture_success = os.path.exists(filepath) and os.path.getsize(filepath) > 0
-                    
-                    if capture_success:
-                        log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
-                    else:
-                        log_warning(f"Direct capture appeared to succeed but file is missing or empty")
-                except Exception as direct_capture_error:
-                    log_error(f"Error during direct capture: {direct_capture_error}")
+            # Check if we have a valid output stream
+            if not self.output or not hasattr(self.output, 'frame') or self.output.frame is None:
+                log_error("Cannot take photo: No active video stream or frame available")
+                return None
                 
-            # If direct capture failed, try to capture from stream as fallback
-            if not capture_success:
-                log_warning("Direct capture failed, attempting fallback method using current stream frame")
-                if self.output and self.output.frame:
+            # Get current frame directly from the stream
+            current_frame = self.output.frame
+            if not current_frame:
+                log_error("Cannot take photo: Current frame is empty")
+                return None
+                
+            # Save the frame directly to file
+            try:
+                with open(filepath, 'wb') as f:
+                    f.write(current_frame)
+                
+                # Verify file was saved
+                if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                    file_size = os.path.getsize(filepath)
+                    log_info(f"Photo saved successfully: {filepath} ({file_size} bytes)")
+                    # Change permissions to ensure it's readable
                     try:
-                        log_info("Using current stream frame as fallback...")
-                        with open(filepath, 'wb') as f:
-                            f.write(self.output.frame)
-                        
-                        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-                            log_info(f"Fallback capture successful: {os.path.getsize(filepath)} bytes")
-                            capture_success = True
-                        else:
-                            log_error("Fallback capture failed - file empty or missing")
-                    except Exception as fallback_error:
-                        log_error(f"Error during fallback capture: {fallback_error}")
+                        os.chmod(filepath, 0o666)  # Make readable/writable by everyone
+                    except Exception as perm_e:
+                        log_warning(f"Could not set file permissions: {perm_e}")
+                    return filepath
                 else:
-                    log_error("Fallback capture failed - no current frame available")
-            
-            if capture_success:
-                log_info(f"Photo captured successfully: {filepath}")
-                return filepath
-            else:
-                log_error("All photo capture methods failed")
+                    log_error(f"Photo file was not created or is empty: {filepath}")
+                    return None
+            except Exception as save_error:
+                log_error(f"Error saving photo: {save_error}")
+                import traceback
+                log_error(f"Save error traceback: {traceback.format_exc()}")
                 return None
                 
         except Exception as e:
-            error_msg = f"Error taking photo: {str(e)}"
-            log_error(error_msg)
-            # Log stack trace for debugging
+            log_error(f"Error in take_photo: {e}")
             import traceback
-            log_error(f"Photo capture error stack trace: {traceback.format_exc()}")
-            
-            # Try to restart recording if it was active before
-            if self.running:
-                try:
-                    log_info("Attempting to restart recording after error...")
-                    encoder = MJPEGEncoder(bitrate=8000000)
-                    self.camera.start_recording(encoder, FileOutput(self.output))
-                except Exception as restart_error:
-                    log_error(f"Failed to restart recording: {restart_error}")
-                    self.running = False
-                
+            log_error(f"Error traceback: {traceback.format_exc()}")
             return None
     
     def get_stream(self):

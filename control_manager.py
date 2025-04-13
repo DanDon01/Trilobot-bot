@@ -314,20 +314,29 @@ class ControlManager:
 
     def _handle_take_photo(self):
         """Handle take photo action"""
-        # Interface with the camera processor to take a photo
+        # Import camera_processor for photo capture
         from camera_processor import camera_processor
+        log_info("ControlManager: Taking photo (direct action)")
 
         try:
+            # Call the take_photo method
             filepath = camera_processor.take_photo()
+            
             if filepath:
-                log_info(f"Photo captured: {filepath}")
+                log_info(f"ControlManager: Photo captured successfully: {filepath}")
+                state_tracker.update_state('camera_mode', 'photo_taken')
+                return True
             else:
-                log_warning("Failed to capture photo (camera processor reported failure)")
+                log_warning("ControlManager: Failed to capture photo - camera processor returned None")
+                state_tracker.update_state('camera_mode', 'photo_failed')
+                return False
 
         except Exception as e:
-            log_error(f"Error interfacing with camera_processor to take photo: {e}")
-
-        state_tracker.update_state('camera_mode', 'photo_taken')
+            log_error(f"ControlManager: Error during photo capture: {e}")
+            import traceback
+            log_error(f"Photo error traceback: {traceback.format_exc()}")
+            state_tracker.update_state('camera_mode', 'photo_error')
+            return False
 
     def set_motor_speeds(self, left_speed: float, right_speed: float):
         """Directly set motor speeds and update movement state."""
