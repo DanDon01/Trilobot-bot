@@ -485,28 +485,31 @@ class PS4Controller:
 
                 # If we reach here, an event was received
                 event_count += 1
-                log_debug(f"--- EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
-
-                # --- Process the event ---
-                processed = False
-                if event.type == ecodes.EV_KEY:
-                    self._process_button_event(event) # Use the existing evdev processor
-                    processed = True
-                elif event.type == ecodes.EV_ABS:
-                    # Log ALL ABS events first
-                    log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
-                    self._process_axis_event(event)   # Use the existing evdev processor
-                    processed = True
-                elif event.type == ecodes.EV_SYN:
-                    # Sync event often follows a burst of axis events
-                    log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # Trigger movement processing after sync if axes might have changed
-                    if self.axes_changed_since_last_sync: # Need to add this flag logic
-                         self._process_movement()
-                         self.axes_changed_since_last_sync = False
-                    processed = False # Don't re-trigger movement below for Sync
-                else:
-                    log_debug(f"Unhandled EVDEV event type: {event.type}")
+                # --- LOG ALL EVENTS --- 
+                log_debug(f"--- RAW EVDEV Event {event_count} --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+                
+                # --- Temporarily disable all processing --- 
+                # processed = False
+                # if event.type == ecodes.EV_KEY:
+                #     # Log ALL ABS events first
+                #     # log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
+                #     self._process_button_event(event) # Use the existing evdev processor
+                #     processed = True
+                # elif event.type == ecodes.EV_ABS:
+                #     log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
+                #     self._process_axis_event(event)   # Use the existing evdev processor
+                #     processed = True
+                # elif event.type == ecodes.EV_SYN:
+                #     # Sync event often follows a burst of axis events
+                #     log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
+                #     # Trigger movement processing after sync if axes might have changed
+                #     # if self.axes_changed_since_last_sync: # Need to add this flag logic
+                #     #      self._process_movement()
+                #     #      self.axes_changed_since_last_sync = False
+                #     processed = False # Don't re-trigger movement below for Sync
+                # else:
+                #     log_debug(f"Unhandled EVDEV event type: {event.type}")
+                # --- End disable processing ---
 
         except BlockingIOError:
             # This shouldn't happen with read_one() but handle just in case
