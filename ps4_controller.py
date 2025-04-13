@@ -430,8 +430,8 @@ class PS4Controller:
             return False
     
     def _input_loop(self):
-        """Read and process controller events using evdev's read_loop()"""
-        log_info("Starting PS4 controller input loop (using read_loop).")
+        """Simplified loop to test basic evdev event reading."""
+        log_info("Starting PS4 controller input loop (SIMPLIFIED TEST - read_loop).")
         if not self.device:
             log_error("Input loop started without a valid controller device.")
             self.running = False
@@ -439,76 +439,78 @@ class PS4Controller:
 
         local_device = None
         device_path = self.device.path
+        thread_name = threading.current_thread().name
+        log_info(f"Input thread '{thread_name}' started for {device_path}.")
 
         try:
             log_info(f"Attempting to open device {device_path} for read_loop...")
             local_device = InputDevice(device_path)
             log_info(f"Device {device_path} opened successfully.")
             
-            try:
-                log_info(f"Attempting to grab exclusive access to {device_path}...")
-                # local_device.grab() # <-- Comment out grab
-                log_info(f"Successfully grabbed {device_path}.") # <-- Log message might be misleading now
-            except OSError as grab_err:
-                if 'Operation not permitted' in str(grab_err):
-                    log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
-                else:
-                    log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
-            except Exception as grab_ex:
-                log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
+            # --- GRAB DISABLED --- 
+            # try:
+            #     log_info(f"Attempting to grab exclusive access to {device_path}...")
+            #     # local_device.grab() # <-- Comment out grab
+            #     log_info(f"Successfully grabbed {device_path}.") # <-- Log message might be misleading now
+            # except OSError as grab_err:
+            #     if 'Operation not permitted' in str(grab_err):
+            #         log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
+            #     else:
+            #         log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
+            # except Exception as grab_ex:
+            #     log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
+            # --- END GRAB DISABLED ---
 
             event_count = 0
-            log_info(f"Entering blocking read_loop for {device_path}...")
+            log_info(f"Entering blocking read_loop for {device_path}... Loop will only print events.")
             
-            # Use the read_loop generator
+            # Use the read_loop generator - SIMPLIFIED PROCESSING
             for event in local_device.read_loop():
                 # Check stop condition *inside* the loop
                 if self.stop_input.is_set():
-                    log_info("Stop signal received during read_loop, exiting loop.")
+                    log_info(f"Stop signal received during read_loop ({thread_name}), exiting loop.")
                     break 
                     
                 event_count += 1
-                log_debug(f"--- Event {event_count} received via read_loop --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+                # Log ALL events received at DEBUG level
+                log_debug(f"--- SIMPLIFIED LOOP: Event {event_count} received --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
                 
-                processed = False
-                if event.type == ecodes.EV_KEY:
-                    self._process_button_event(event)
-                    processed = True
-                elif event.type == ecodes.EV_ABS:
-                    self._process_axis_event(event)
-                    processed = True
-                
-                # Recalculate movement after any relevant event
-                if processed:
-                    self._process_movement()
+                # --- NO PROCESSING HERE --- 
+                # processed = False
+                # if event.type == ecodes.EV_KEY:
+                #     self._process_button_event(event)
+                #     processed = True
+                # elif event.type == ecodes.EV_ABS:
+                #     self._process_axis_event(event)
+                #     processed = True
+                # 
+                # # Recalculate movement after any relevant event
+                # if processed:
+                #     self._process_movement()
+                # --- END NO PROCESSING --- 
                     
         except BlockingIOError:
-            # This error might occur if the device buffer is temporarily empty
-            # but read_loop should handle this internally usually. Log if it happens.
-            log_warning("BlockingIOError caught during read_loop. This might indicate an issue.")
-            # No need to sleep here, read_loop will block until next event or error
-            pass # Should not happen often with read_loop, but handle just in case
+            log_warning(f"BlockingIOError caught during read_loop ({thread_name}).")
+            pass 
         except OSError as e:
-            log_error(f"Controller disconnected or read error in read_loop: {e}")
-            self.device = None # Mark controller as disconnected
-            # Optionally attempt reconnect here if configured
+            log_error(f"Controller disconnected or read error in read_loop ({thread_name}): {e}")
+            self.device = None 
         except Exception as e:
-            log_error(f"Unexpected error in input loop (read_loop): {e}", exc_info=True)
+            log_error(f"Unexpected error in input loop ({thread_name}): {e}", exc_info=True)
         finally:
-            log_info("Exiting PS4 controller read_loop.")
+            log_info(f"Exiting PS4 controller read_loop ({thread_name}).")
             if local_device:
+                # --- UNGRAB DISABLED ---
+                # try:
+                #     if local_device.fileno() != -1: 
+                #         log_debug(f"Attempting to ungrab {device_path}")
+                #         # local_device.ungrab() # <-- Comment out ungrab
+                #     else:
+                #         log_debug(f"Device {device_path} already closed, skipping ungrab.")
+                # except Exception as ungrab_err:
+                #     log_warning(f"Error ungrabbing device {device_path}: {ungrab_err}")
+                # --- END UNGRAB DISABLED ---
                 try:
-                    # Release grab if held
-                    # Check if device is still open before ungrabbing
-                    if local_device.fileno() != -1: 
-                        log_debug(f"Attempting to ungrab {device_path}")
-                        # local_device.ungrab() # <-- Comment out ungrab
-                    else:
-                        log_debug(f"Device {device_path} already closed, skipping ungrab.")
-                except Exception as ungrab_err:
-                    log_warning(f"Error ungrabbing device {device_path}: {ungrab_err}")
-                try:
-                    # Close the device
                     if local_device.fileno() != -1:
                         log_debug(f"Attempting to close device {device_path}")
                         local_device.close()
@@ -516,8 +518,8 @@ class PS4Controller:
                         log_debug(f"Device {device_path} already closed, skipping close.")
                 except Exception as close_err:
                     log_warning(f"Error closing device {device_path}: {close_err}")
-            self.running = False # Ensure running flag is set to False
-            log_info("PS4 controller input loop finished.")
+            self.running = False 
+            log_info(f"PS4 controller input loop finished ({thread_name}).")
 
     def _process_button_event(self, event):
         """Process button press/release events"""
