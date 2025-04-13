@@ -173,32 +173,60 @@ class CameraProcessor:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filepath = os.path.join(self.capture_dir, f"photo_{timestamp}.jpg")
             
+            # More detailed logging
+            log_info(f"Photo capture requested. Path: {filepath}")
+            log_info(f"Capture directory exists: {os.path.exists(self.capture_dir)}")
+            
+            # Ensure the capture directory is accessible
+            if not os.path.exists(self.capture_dir):
+                log_info(f"Creating capture directory: {self.capture_dir}")
+                os.makedirs(self.capture_dir, exist_ok=True)
+            
             # Capture image
             log_info("Stopping recording to take photo...")
-            self.camera.stop_recording()
+            was_recording = self.running
+            if was_recording:
+                self.camera.stop_recording()
             
             # Capture and save directly to file
             log_info(f"Capturing photo to {filepath}...")
             self.camera.capture_file(filepath)
             
-            # Restart recording
-            log_info("Restarting recording...")
-            encoder = MJPEGEncoder(bitrate=8000000)
-            self.camera.start_recording(encoder, FileOutput(self.output))
+            # Verify file was created
+            if os.path.exists(filepath):
+                log_info(f"Photo file successfully created: {os.path.getsize(filepath)} bytes")
+            else:
+                log_error(f"Photo file was not created at {filepath}")
+            
+            # Restart recording if it was recording before
+            if was_recording:
+                log_info("Restarting recording...")
+                try:
+                    encoder = MJPEGEncoder(bitrate=8000000)
+                    self.camera.start_recording(encoder, FileOutput(self.output))
+                    self.running = True
+                except Exception as restart_error:
+                    log_error(f"Failed to restart recording: {restart_error}")
+                    self.running = False
             
             log_info(f"Photo captured: {filepath}")
             return filepath
         except Exception as e:
             error_msg = f"Error taking photo: {str(e)}"
             log_error(error_msg)
+            # Log stack trace for debugging
+            import traceback
+            log_error(f"Photo capture error stack trace: {traceback.format_exc()}")
             
             # Try to restart recording if it failed
             try:
                 log_info("Attempting to restart recording after error...")
                 encoder = MJPEGEncoder(bitrate=8000000)
                 self.camera.start_recording(encoder, FileOutput(self.output))
+                self.running = True
             except Exception as restart_error:
                 log_error(f"Failed to restart recording: {restart_error}")
+                self.running = False
                 
             return None
     

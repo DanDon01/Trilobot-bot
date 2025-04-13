@@ -662,6 +662,18 @@ class PS4Controller:
                                   control_manager.knight_rider_active = not control_manager.knight_rider_active
                                   control_manager.party_mode_active = False
                                   state_tracker.update_state('led_mode', 'knight_rider' if control_manager.knight_rider_active else 'off')
+                                  
+                                  # Import and start light show the same way web interface does
+                                  from web_control import start_light_show, knight_rider_effect, stop_light_shows
+                                  
+                                  if control_manager.knight_rider_active:
+                                      start_light_show(knight_rider_effect)
+                                  else:
+                                      stop_light_shows.set()
+                                      # Try to clear the lights if active
+                                      if hasattr(control_manager, 'robot') and control_manager.robot is not None:
+                                          try: control_manager.robot.clear_underlighting()
+                                          except: pass
                               except Exception as e:
                                   log_error(f"Error toggling knight rider: {e}")
                           elif action == ControlAction.TOGGLE_PARTY_MODE:
@@ -670,6 +682,18 @@ class PS4Controller:
                                   control_manager.party_mode_active = not control_manager.party_mode_active
                                   control_manager.knight_rider_active = False
                                   state_tracker.update_state('led_mode', 'party' if control_manager.party_mode_active else 'off')
+                                  
+                                  # Import and start light show the same way web interface does
+                                  from web_control import start_light_show, party_mode_effect, stop_light_shows
+                                  
+                                  if control_manager.party_mode_active:
+                                      start_light_show(party_mode_effect)
+                                  else:
+                                      stop_light_shows.set()
+                                      # Try to clear the lights if active
+                                      if hasattr(control_manager, 'robot') and control_manager.robot is not None:
+                                          try: control_manager.robot.clear_underlighting()
+                                          except: pass
                               except Exception as e:
                                   log_error(f"Error toggling party mode: {e}")
                           elif action == ControlAction.TAKE_PHOTO:
