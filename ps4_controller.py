@@ -17,6 +17,13 @@ from debugging import log_info, log_error, log_warning, state_tracker, log_debug
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 
+try:
+    import inputs
+    INPUTS_AVAILABLE = True
+except ImportError:
+    INPUTS_AVAILABLE = False
+    logger.warning("inputs library not found. pip install inputs")
+
 logger = logging.getLogger('trilobot.ps4')
 
 # Try to import evdev for controller input
@@ -83,6 +90,47 @@ class PS4Controller:
             16: 'dpad_x',     # D-pad X
             17: 'dpad_y'      # D-pad Y
         }
+        
+        # --- NEW: Mappings for 'inputs' library (adjust as needed) ---
+        # Based on common gamepad layouts, might need verification
+        self.inputs_button_map = {
+            'BTN_SOUTH': 'x',        # Usually A/Cross
+            'BTN_EAST': 'circle',     # Usually B/Circle
+            'BTN_NORTH': 'triangle',   # Usually Y/Triangle
+            'BTN_WEST': 'square',     # Usually X/Square
+            'BTN_TL': 'l1',
+            'BTN_TR': 'r1',
+            'BTN_TL2': 'l2_button',
+            'BTN_TR2': 'r2_button',
+            'BTN_SELECT': 'share',
+            'BTN_START': 'options',
+            'BTN_MODE': 'ps',
+            'BTN_THUMBL': 'l3',
+            'BTN_THUMBR': 'r3'
+        }
+        self.inputs_axis_map = {
+            'ABS_X': 'left_x',
+            'ABS_Y': 'left_y',
+            'ABS_RX': 'right_x',
+            'ABS_RY': 'right_y',
+            'ABS_Z': 'l2',         # Often L2 analog
+            'ABS_RZ': 'r2',        # Often R2 analog
+            'ABS_HAT0X': 'dpad_x',
+            'ABS_HAT0Y': 'dpad_y'
+        }
+        # Scale factors for inputs axes (max raw value)
+        # Common values, may need adjustment based on observed max range
+        self.inputs_axis_scale = {
+            'ABS_X': 32768.0,
+            'ABS_Y': 32768.0,
+            'ABS_RX': 32768.0,
+            'ABS_RY': 32768.0,
+            'ABS_Z': 255.0, # Triggers often 0-255
+            'ABS_RZ': 255.0,
+            'ABS_HAT0X': 1.0, # DPad usually -1, 0, 1
+            'ABS_HAT0Y': 1.0
+        }
+        # ----------------------------------------------------------
         
         log_info("PS4 Controller initialized")
     
@@ -393,6 +441,18 @@ class PS4Controller:
         return self._start_input_thread()
 
     def _start_input_thread(self):
+        # --- Prioritize 'inputs' library if available --- 
+        if INPUTS_AVAILABLE:
+             target_loop = self._input_loop_inputs
+             log_info("Using 'inputs' library for controller.")
+        elif EVDEV_AVAILABLE and self.device:
+             target_loop = self._input_loop # Keep the evdev one as fallback
+             log_info("Using 'evdev' library for controller.")
+        else:
+             log_error("No suitable controller library (inputs or evdev) available or device not found.")
+             self.web_only_mode = True
+             return False # Cannot start input thread
+             
         """Starts the background thread for reading input"""
         if self.running:
             log_warning("Input thread already running.")
@@ -404,7 +464,7 @@ class PS4Controller:
             return False
 
         self.stop_input.clear()
-        self.input_thread = threading.Thread(target=self._input_loop)
+        self.input_thread = threading.Thread(target=target_loop) # Use selected loop
         self.input_thread.daemon = True
         self.input_thread.start()
         self.running = True
@@ -610,6 +670,102 @@ class PS4Controller:
             # Stop motors if sticks are centered
             control_manager.robot.disable_motors()
             state_tracker.update_state('movement', 'stopped')
+
+    # --- New Input Loop using 'inputs' library --- 
+    def _input_loop_inputs(self):
+        """Read and process controller events using the 'inputs' library."""
+        log_info("Starting PS4 controller input loop (using 'inputs' library).")
+        thread_name = threading.current_thread().name
+
+        while not self.stop_input.is_set():
+            try:
+                # get_gamepad() blocks until an event occurs
+                # It raises inputs.UnpluggedError if controller disconnects
+                events = inputs.get_gamepad()
+                if not events:
+                    # Should not happen if blocking, but handle anyway
+                    time.sleep(0.01)
+                    continue
+
+                for event in events:
+                    if self.stop_input.is_set(): # Check stop flag frequently
+                        break
+                    
+                    log_debug(f"--- INPUTS Event Received --- Type: {event.ev_type}, Code: {event.code}, State: {event.state}")
+                    self._process_inputs_event(event)
+
+            except inputs.UnpluggedError:
+                log_error(f"Controller disconnected (inputs.UnpluggedError in {thread_name})")
+                self.device = None # Mark as disconnected
+                self.running = False
+                log_info("Input loop stopping due to disconnection.")
+                # Consider attempting reconnect here based on config
+                break
+            except Exception as e:
+                log_error(f"Unexpected error in inputs loop ({thread_name}): {e}", exc_info=True)
+                time.sleep(1) # Avoid busy-looping on errors
+
+        log_info(f"Exiting PS4 controller inputs loop ({thread_name}).")
+        self.running = False
+        log_info(f"PS4 controller input loop finished ({thread_name}).")
+        
+    def _process_inputs_event(self, event):
+        """Process a single event from the 'inputs' library."""
+        processed = False
+        if event.ev_type == 'Key': # Button Event
+            button_name = self.inputs_button_map.get(event.code)
+            if button_name:
+                is_pressed = (event.state == 1)
+                self.buttons[button_name] = is_pressed
+                log_debug(f"INPUTS Button: {button_name} {'pressed' if is_pressed else 'released'}")
+                
+                # Trigger actions (same logic as before for now)
+                if is_pressed:
+                    action = None
+                    if button_name == 'x': action = ControlAction.STOP
+                    elif button_name == 'triangle': action = ControlAction.TAKE_PHOTO
+                    elif button_name == 'circle': action = ControlAction.TOGGLE_KNIGHT_RIDER
+                    elif button_name == 'square': action = ControlAction.TOGGLE_PARTY_MODE
+                     
+                    if action:
+                         if control_manager.current_mode == ControlMode.PS4:
+                              control_manager.execute_action(action, source="ps4")
+                         else:
+                              log_warning(f"PS4 action {action} ignored, current mode is {control_manager.current_mode}")
+                processed = True
+        elif event.ev_type == 'Absolute': # Axis Event (Sticks, Triggers, DPad)
+            axis_name = self.inputs_axis_map.get(event.code)
+            if axis_name:
+                scale = self.inputs_axis_scale.get(event.code, 1.0)
+                # Normalize axis value
+                if 'ABS_Z' in event.code or 'ABS_RZ' in event.code: # Triggers usually 0 to max
+                     value = event.state / scale
+                elif 'ABS_HAT' in event.code: # Dpad usually -1, 0, 1
+                     value = event.state 
+                else: # Sticks usually -max to +max
+                     value = event.state / scale
+                     
+                # Clamp value
+                value = max(-1.0, min(1.0, value)) if 'ABS_HAT' not in event.code else value
+                
+                # Update internal state only if changed significantly 
+                # (helps reduce noise for slightly jittery axes)
+                if abs(self.axes.get(axis_name, 0) - value) > 0.01:
+                    self.axes[axis_name] = value
+                    log_debug(f"INPUTS Axis: {axis_name} = {value:.2f} (raw: {event.state})")
+                    processed = True
+        elif event.ev_type == 'Sync':
+             # Sync events indicate end of a burst of related events
+             # We might trigger movement processing here instead of after every axis event
+             # log_debug("Sync event received")
+             pass # Don't set processed=True for Sync
+        else:
+            # Log other event types if needed
+            log_debug(f"INPUTS Unhandled Event Type: {event.ev_type} Code: {event.code} State: {event.state}")
+
+        # Recalculate movement if a relevant event was processed
+        if processed and event.ev_type == 'Absolute': # Only update movement on axis changes
+            self._process_movement()
 
 # Create global PS4 controller instance
 ps4_controller = PS4Controller() 
