@@ -430,131 +430,93 @@ class PS4Controller:
             return False
     
     def _input_loop(self):
-        """Read and process controller events using non-blocking read_one()"""
-        log_info("Starting PS4 controller input loop (non-blocking read_one)." )
+        """Read and process controller events using evdev's read_loop()"""
+        log_info("Starting PS4 controller input loop (using read_loop).")
         if not self.device:
             log_error("Input loop started without a valid controller device.")
             self.running = False
             return
 
+        local_device = None
+        device_path = self.device.path
+
         try:
-            log_info(f"Entering non-blocking read loop for {self.device.path}...")
+            log_info(f"Attempting to open device {device_path} for read_loop...")
+            local_device = InputDevice(device_path)
+            log_info(f"Device {device_path} opened successfully.")
+            
+            try:
+                log_info(f"Attempting to grab exclusive access to {device_path}...")
+                local_device.grab()
+                log_info(f"Successfully grabbed {device_path}.")
+            except OSError as grab_err:
+                if 'Operation not permitted' in str(grab_err):
+                    log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
+                else:
+                    log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
+            except Exception as grab_ex:
+                log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
+
             event_count = 0
-            last_event_time = time.time()
-            no_event_counter = 0
-
-            local_device = None # Device object specific to this thread/loop
-            device_path = self.device.path if self.device else None # Get path initially
-
-            if not device_path:
-                 log_error("Cannot start input loop: Initial device path not found.")
-                 self.running = False
-                 return
-
-            while not self.stop_input.is_set():
-                try:
-                    # Ensure device is open
-                    if local_device is None:
-                        log_info(f"Attempting to open device {device_path} within loop...")
-                        local_device = InputDevice(device_path)
-                        log_info(f"Device {device_path} opened successfully within loop.")
-                        try:
-                             log_info(f"Attempting to grab exclusive access to {device_path}...")
-                             local_device.grab() # Request exclusive access
-                             log_info(f"Successfully grabbed {device_path}.")
-                        except OSError as grab_err:
-                             # Handle permission errors specifically if needed
-                             if 'Operation not permitted' in str(grab_err):
-                                  log_error(f"Permission error grabbing {device_path}. Try running script with sudo? (Continuing without grab)")
-                             else:
-                                  log_warning(f"Failed to grab exclusive access to {device_path}: {grab_err} (Continuing without grab)")
-                        except Exception as grab_ex:
-                             log_warning(f"Unexpected error during grab(): {grab_ex} (Continuing without grab)")
-                        event_count = 0 # Reset count on reopen
-
-                    # --- Read Event ---
-                    log_debug("Attempting local_device.read_one()...")
-                    event = local_device.read_one() 
-                    log_debug(f"local_device.read_one() returned: {type(event)}")
+            log_info(f"Entering blocking read_loop for {device_path}...")
+            
+            # Use the read_loop generator
+            for event in local_device.read_loop():
+                # Check stop condition *inside* the loop
+                if self.stop_input.is_set():
+                    log_info("Stop signal received during read_loop, exiting loop.")
+                    break 
                     
-                    if event is None:
-                        # No event available right now
-                        no_event_counter += 1
-                        if no_event_counter > 100000: # Log approx every second if idle
-                             log_debug("No PS4 events read, looping...")
-                             no_event_counter = 0
-                        time.sleep(0.01) # Small sleep to prevent busy-waiting
-                        continue 
+                event_count += 1
+                log_debug(f"--- Event {event_count} received via read_loop --- Type: {event.type}, Code: {event.code}, Value: {event.value}")
+                
+                processed = False
+                if event.type == ecodes.EV_KEY:
+                    self._process_button_event(event)
+                    processed = True
+                elif event.type == ecodes.EV_ABS:
+                    self._process_axis_event(event)
+                    processed = True
+                
+                # Recalculate movement after any relevant event
+                if processed:
+                    self._process_movement()
                     
-                    # If we reach here, an event was received
-                    no_event_counter = 0 # Reset idle counter
-                    last_event_time = time.time()
-                    log_debug(f"--- Event received via read_one (Count: {event_count + 1}) ---") 
-
-                    # --- Event Processing Start ---
-                    event_count += 1
-                    log_debug(f"Event {event_count}: type={event.type}, code={event.code}, value={event.value}") 
-                    
-                    processed = False # Flag to track if event was handled
-                    if event.type == ecodes.EV_KEY:
-                        self._process_button_event(event)
-                        processed = True
-                    elif event.type == ecodes.EV_ABS:
-                        self._process_axis_event(event)
-                        processed = True
-                    
-                    # Recalculate movement after any relevant event
-                    if processed:
-                        self._process_movement()
-                    # --- Event Processing End ---
-                except BlockingIOError:
-                     # ... (rest of BlockingIOError handling) ...
-                     log_debug("BlockingIOError caught, sleeping briefly.")
-                     time.sleep(0.05)
-                     continue
-                except OSError as loop_os_err:
-                     # ... (rest of OSError handling - make sure to close local_device) ...
-                     log_error(f"Controller disconnected or read error within loop: {loop_os_err}")
-                     if local_device:
-                          try:
-                               log_debug(f"Closing pre-opened device {device_path}")
-                               local_device.close()
-                               local_device = None # Prevent use elsewhere
-                          except Exception as e:
-                               log_warning(f"Could not close pre-opened device: {e}")
-                     self.device = None # Mark as closed
-                     log_info("Waiting briefly before attempting to reopen device...")
-                     time.sleep(2.0) # Wait before trying to reopen
-                except Exception as inner_e:
-                    # ... (rest of inner_e handling - make sure to close local_device) ...
-                    log_error(f"Error processing event {event_count}: {inner_e}", exc_info=True)
-                    if local_device:
-                         try:
-                              log_debug(f"Closing pre-opened device {device_path}")
-                              local_device.close()
-                              local_device = None # Prevent use elsewhere
-                         except Exception as e:
-                              log_warning(f"Could not close pre-opened device: {e}")
-                    self.device = None
-                    time.sleep(1.0)
-
-            # Log loop exit reason
-            if self.stop_input.is_set():
-                log_info("Input loop stopped normally by stop signal.")
-            else:
-                log_warning(f"Input loop stopped unexpectedly.")
-                    
+        except BlockingIOError:
+            # This error might occur if the device buffer is temporarily empty
+            # but read_loop should handle this internally usually. Log if it happens.
+            log_warning("BlockingIOError caught during read_loop. This might indicate an issue.")
+            # No need to sleep here, read_loop will block until next event or error
+            pass # Should not happen often with read_loop, but handle just in case
         except OSError as e:
-            log_error(f"Controller disconnected or read error: {e}")
-            self.device = None 
-            self.running = False
-            if config.get("controller", "auto_reconnect"):
-                 log_info("Attempting to reconnect controller...")
-                 pass
+            log_error(f"Controller disconnected or read error in read_loop: {e}")
+            self.device = None # Mark controller as disconnected
+            # Optionally attempt reconnect here if configured
         except Exception as e:
-            log_error(f"Unexpected error in input loop (outer try): {e}", exc_info=True) 
-            self.running = False
+            log_error(f"Unexpected error in input loop (read_loop): {e}", exc_info=True)
         finally:
+            log_info("Exiting PS4 controller read_loop.")
+            if local_device:
+                try:
+                    # Release grab if held
+                    # Check if device is still open before ungrabbing
+                    if local_device.fileno() != -1: 
+                        log_debug(f"Attempting to ungrab {device_path}")
+                        local_device.ungrab()
+                    else:
+                        log_debug(f"Device {device_path} already closed, skipping ungrab.")
+                except Exception as ungrab_err:
+                    log_warning(f"Error ungrabbing device {device_path}: {ungrab_err}")
+                try:
+                    # Close the device
+                    if local_device.fileno() != -1:
+                        log_debug(f"Attempting to close device {device_path}")
+                        local_device.close()
+                    else:
+                        log_debug(f"Device {device_path} already closed, skipping close.")
+                except Exception as close_err:
+                    log_warning(f"Error closing device {device_path}: {close_err}")
+            self.running = False # Ensure running flag is set to False
             log_info("PS4 controller input loop finished.")
 
     def _process_button_event(self, event):
