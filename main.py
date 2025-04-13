@@ -91,12 +91,12 @@ def main():
             log_warning(f"Camera hardware issue: {camera_status['error']}")
         
         # Try to start the camera
-        # if camera_processor.start(): # COMMENTED OUT
-        #     # Update camera mode in state tracker
-        #     state_tracker.update_state('camera_mode', 'basic')
-        # else:
-        #     log_warning(f"Failed to start camera processor: {camera_status['error']}")
-        log_warning("Camera processor start skipped for testing.") # ADDED
+        if camera_processor.start(): # UNCOMMENTED
+            # Update camera mode in state tracker
+            state_tracker.update_state('camera_mode', 'basic')
+        else:
+            log_warning(f"Failed to start camera processor: {camera_status['error']}")
+        # log_warning("Camera processor start skipped for testing.") # REMOVED
         
         # Check for PS4 controller
         print("\n====== PS4 CONTROLLER SETUP ======")
@@ -132,10 +132,10 @@ def main():
         log_warning("Voice controller start skipped for testing.") # ADDED
         
         # Start web server
-        # web_thread = start_web_server() # COMMENTED OUT
-        # if not web_thread:
-        #     log_warning("Web server failed to start")
-        log_warning("Web server start skipped for testing.") # ADDED
+        web_thread = start_web_server() # UNCOMMENTED
+        if not web_thread:
+            log_warning("Web server failed to start")
+        #log_warning("Web server start skipped for testing.") # REMOVED
         
         # Announce successful startup if voice is enabled
         # log_info("Attempting startup announcement...") # COMMENTED OUT

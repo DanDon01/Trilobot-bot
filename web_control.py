@@ -36,8 +36,10 @@ except ImportError:
     LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT = 2, 3
     LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT = 4, 5
 
-# Initialize Flask
-app = Flask(__name__)
+# Initialize Flask with explicit static folder path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+static_folder = os.path.join(current_dir, 'static')
+app = Flask(__name__, static_folder=static_folder)
 
 # Global variables
 overlay_mode = 'normal'
@@ -278,10 +280,29 @@ def stream():
         frame_count = 0
         last_log_time = stream_start_time
         
+        # Get the absolute path to no-camera.png
+        no_camera_path = os.path.join(current_dir, 'static', 'no-camera.png')
+        log_info(f"Using fallback image at: {no_camera_path}")
+        
+        # Check if the file exists
+        if not os.path.exists(no_camera_path):
+            log_error(f"Fallback image not found at {no_camera_path}")
+        
+        # Load the fallback image once
+        try:
+            with open(no_camera_path, 'rb') as f:
+                fallback_img = f.read()
+                log_info(f"Loaded fallback image successfully: {len(fallback_img)} bytes")
+        except Exception as e:
+            log_error(f"Failed to load fallback image: {e}")
+            fallback_img = b''
+        
         output = camera_processor.get_stream()
         if output is None:
             log_error("Failed to get stream output from camera_processor.")
-            # Potentially yield a static error image here
+            # Return an error frame rather than None
+            yield (b'--frame\r\n'
+                  b'Content-Type: image/jpeg\r\n\r\n' + fallback_img + b'\r\n')
             return
 
         while True:
@@ -292,12 +313,12 @@ def stream():
                 
                 if frame is None:
                     log_warning("Stream generator received None frame.")
+                    # Yield the placeholder image when frame is None
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + fallback_img + b'\r\n')
                     time.sleep(0.1) # Avoid busy-waiting if frames stop
                     continue
 
-                # Apply overlay - ensure this doesn't take too long
-                # processed_frame = camera_processor.apply_overlay(frame)
-                
                 # Send the frame
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
@@ -315,9 +336,13 @@ def stream():
                 break
             except Exception as e:
                 log_error(f"Error in camera stream generator: {e}")
-                # Consider breaking or yielding an error frame
+                # Yield the error image on exceptions
+                try:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + fallback_img + b'\r\n')
+                except:
+                    pass  # Ignore errors during error handling
                 time.sleep(1) # Pause before retrying after error
-                # break # Uncomment to stop streaming on error
         
         log_info("Exiting camera stream generation loop.")
 

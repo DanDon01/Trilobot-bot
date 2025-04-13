@@ -151,7 +151,7 @@
         <!-- Camera Feed -->
         <div class="camera-feed">
             <img id="camera-stream" src="{{ stream_url }}" alt="Camera Feed" 
-                 onerror="handleStreamError();">
+                 onerror="this.src='/static/no-camera.png'; handleStreamError();">
         </div>
         
         <div class="control-section">
@@ -314,11 +314,15 @@
         function handleStreamError() {
             console.error("Camera stream failed to load or disconnected.");
             document.getElementById('status-text').textContent = "Error: Camera stream disconnected";
-            // Optionally try to reload the image after a delay
-            // setTimeout(() => {
-            //    const img = document.getElementById('camera-stream');
-            //    img.src = img.src + '&t=' + new Date().getTime(); // Cache buster
-            // }, 5000); 
+            
+            // Try to reload the stream after a delay
+            setTimeout(() => {
+                const img = document.getElementById('camera-stream');
+                if (img.src.includes('/static/no-camera.png')) {
+                    // If already showing the error image, try to reconnect to the stream
+                    img.src = "{{ stream_url }}?t=" + new Date().getTime(); // Cache buster
+                }
+            }, 10000); // Try to reconnect every 10 seconds
         }
 
         // Initial status

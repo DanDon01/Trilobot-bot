@@ -480,114 +480,98 @@ class PS4Controller:
             return False
     
     def _input_loop(self):
-        """Input loop using evdev with non-blocking read."""
-        log_info("Starting PS4 controller input loop (using evdev non-blocking).")
+        """Input event loop for a PS4 controller device."""
+        from debugging import log_debug, log_info, log_error, log_warning
+
+        # Log the start of the loop
+        log_info(f"PS4Controller: Starting input loop for device: {self.device_path}")
+        
         if not self.device_path:
-            log_error("Input loop (evdev) started without a valid device path.")
-            self.running = False
+            log_error("Cannot start input loop - no device path provided")
             return
-
-        thread_name = threading.current_thread().name
-        log_info(f"Input thread '{thread_name}' started for {self.device_path}.")
-
-        local_device = None # Initialize
+        
+        local_device = None
+        
         try:
-            log_info(f"Attempting to open device {self.device_path} directly...")
-            local_device = InputDevice(self.device_path) # Open directly
-            log_info(f"Device {self.device_path} opened successfully.")
+            # Open the device (without 'with' as it doesn't support context manager)
+            local_device = InputDevice(self.device_path)
+            log_info(f"PS4Controller: Opened device: {self.device_path}")
             
-            # Print detailed capabilities to debug mapping issues
-            capabilities = local_device.capabilities(verbose=True)
-            log_info(f"Controller capabilities: {capabilities}")
+            # Set non-blocking mode
+            local_device.grab()  # Grab the device exclusively
+            log_info("PS4Controller: Grabbed device exclusively")
             
-            # Print all available button and axis codes to help debugging
-            log_info("Available button codes:")
-            for code_name, code_val in ecodes.keys.items():
-                log_debug(f"EV_KEY: {code_name} = {code_val}")
-                
-            log_info("Available axis codes:")
-            for code_name, code_val in ecodes.ABS.items():
-                log_debug(f"EV_ABS: {code_name} = {code_val}")
+            # Log device capabilities
+            log_info(f"PS4Controller: Device capabilities: {local_device.capabilities(verbose=True)}")
             
-            log_info(f"Entering non-blocking evdev read loop for {self.device_path}...")
+            # Main event loop
             event_count = 0
-
+            last_log_time = time.time()
+            
             while not self.stop_input.is_set():
-                event = local_device.read_one() # Use non-blocking read
-                if event is None:
-                    time.sleep(0.01)
-                    continue
-
-                # CRITICAL: Log every raw event received before processing
-                log_info(f"RAW EVDEV Event: Type={event.type}({self._event_type_name(event.type)}), Code={event.code}, Value={event.value}")
-
-                # If we reach here, an event was received
-                event_count += 1
-
-                # Print the event info with descriptive event name for better debugging
-                if event.type == 1:  # EV_KEY
-                    event_type_name = "EV_KEY"
-                    # Try to get the key name from ecodes for better logging
-                    key_name = "unknown"
-                    try:
-                        for code_name, code_val in ecodes.keys.items():
-                            if code_val == event.code:
-                                key_name = code_name
-                                break
-                    except:
-                        pass
-                    log_info(f"Button event: {event_type_name}({event.type}), Code={event.code}({key_name}), Value={event.value}")
+                if local_device.fd < 0:
+                    log_warning("PS4Controller: Device file descriptor is invalid")
+                    break
                 
-                # --- CRITICAL: Explicit INT comparison for EV_KEY (1) to ensure all button events are caught ---
-                if int(event.type) == 1:  # EV_KEY (button)
-                    log_info(f"*** BUTTON EVENT DETECTED *** Code={event.code}, Value={event.value}")
-                    self._process_button_event(event) 
-                elif int(event.type) == 3:  # EV_ABS (axis)
-                    log_debug(f"--- Event type matched 3 (EV_ABS) ---")
-                    self._process_axis_event(event)
-                elif int(event.type) == 0:  # EV_SYN (synchronization)
-                    log_debug(f"--- Event type matched 0 (EV_SYN) ---")
-                    log_debug(f"EVDEV Sync event received (SYN_REPORT, code {event.code}, value {event.value})")
-                    # Trigger movement check after SYN event
-                    if self.axes_changed_since_last_sync:
-                         log_debug("--- Triggering movement check after SYN event ---")
-                         self._process_movement()
-                         self.axes_changed_since_last_sync = False
-                else:
-                    log_debug(f"--- Event type UNHANDLED: {event.type} ---") 
-
-        except OSError as e:
-            log_error(f"Controller disconnected or read error in evdev loop ({thread_name}): {e}")
-            self.device_path = None 
-            self.running = False 
-        except Exception as e:
-            logger.error(f"Unexpected error in evdev input loop ({thread_name}): {e}", exc_info=True)
-        finally:
-            log_info(f"Exiting PS4 controller evdev loop ({thread_name}).")
-            # Explicitly close device if opened
-            if local_device:
+                # Check for events (non-blocking)
                 try:
-                    if hasattr(local_device, 'fd') and local_device.fd != -1:
-                        log_debug(f"Attempting to close evdev device {self.device_path}")
-                        local_device.close()
+                    event = local_device.read_one()
+                    if event:
+                        event_count += 1
+                        if event.type == ecodes.EV_KEY:
+                            log_info(f"PS4Controller: Button event: code={event.code}, value={event.value}")
+                        elif event.type == ecodes.EV_ABS:
+                            log_debug(f"PS4Controller: Axis event: code={event.code}, value={event.value}")
+                        elif event.type == ecodes.EV_SYN:
+                            log_debug(f"PS4Controller: Sync event received")
+                        else:
+                            log_debug(f"PS4Controller: Other event type: {event.type}")
+                        
+                        self._handle_event(event)
                     else:
-                        log_debug(f"Evdev device {self.device_path} already closed.")
-                except Exception as close_err:
-                    log_warning(f"Error closing evdev device {self.device_path}: {close_err}")
-            self.running = False 
-            log_info(f"PS4 controller evdev input loop finished ({thread_name}).")
+                        # No events available, sleep a bit to avoid busy-waiting
+                        time.sleep(0.001)  # 1 ms sleep
+                except BlockingIOError:
+                    # No events available, sleep a bit
+                    time.sleep(0.001)  # 1 ms sleep
+                except OSError as e:
+                    log_error(f"PS4Controller: OS Error reading device: {e}")
+                    break
+                
+                # Periodically log event count
+                current_time = time.time()
+                if current_time - last_log_time >= 5.0:  # Log every 5 seconds
+                    log_info(f"PS4Controller: Processed {event_count} events in the last 5 seconds")
+                    event_count = 0
+                    last_log_time = current_time
+                
+            log_info("PS4Controller: Input loop exiting normally")
+            
+        except Exception as e:
+            log_error(f"PS4Controller: Error in input loop: {e}")
+            
+        finally:
+            # Ensure the device is closed properly
+            if local_device is not None and local_device.fd >= 0:
+                try:
+                    local_device.ungrab()
+                    local_device.close()
+                    log_info("PS4Controller: Device closed successfully")
+                except Exception as e:
+                    log_error(f"PS4Controller: Error closing device: {e}")
     
-    def _event_type_name(self, type_val):
-        """Convert event type value to name"""
-        types = {
-            0: "EV_SYN",
-            1: "EV_KEY",
-            2: "EV_REL", 
-            3: "EV_ABS",
-            4: "EV_MSC",
-            5: "EV_SW"
-        }
-        return types.get(type_val, "UNKNOWN")
+    def _handle_event(self, event):
+        """Handle a single event from the PS4 controller"""
+        log_debug(f"PS4Controller: Handling event: type={event.type}, code={event.code}, value={event.value}")
+        
+        if event.type == ecodes.EV_KEY:
+            self._process_button_event(event)
+        elif event.type == ecodes.EV_ABS:
+            self._process_axis_event(event)
+        elif event.type == ecodes.EV_SYN:
+            log_debug(f"PS4Controller: Sync event received")
+        else:
+            log_debug(f"PS4Controller: Other event type: {event.type}")
 
     def _process_button_event(self, event):
         """Process button press/release events (evdev)"""
@@ -613,43 +597,72 @@ class PS4Controller:
                  # Map standard and alt buttons to the same actions
                  if standard_name == 'x': 
                      action = ControlAction.STOP
-                     log_debug("X button - STOPPING MOTORS")
+                     log_info("X button - STOPPING MOTORS")
                  elif standard_name == 'triangle': 
                      action = ControlAction.TAKE_PHOTO
-                     log_debug("Triangle button - TAKING PHOTO")
+                     log_info("Triangle button - TAKING PHOTO")
                  elif standard_name == 'circle': 
                      action = ControlAction.TOGGLE_KNIGHT_RIDER
-                     log_debug("Circle button - TOGGLING KNIGHT RIDER")
+                     log_info("Circle button - TOGGLING KNIGHT RIDER")
                  elif standard_name == 'square': 
                      action = ControlAction.TOGGLE_PARTY_MODE
-                     log_debug("Square button - TOGGLING PARTY MODE")
+                     log_info("Square button - TOGGLING PARTY MODE")
                  # Enhanced D-pad controls
                  elif standard_name == 'dpad_up': 
                      action = ControlAction.MOVE_FORWARD
-                     log_debug("D-pad UP - MOVING FORWARD")
+                     log_info("D-pad UP - MOVING FORWARD")
                  elif standard_name == 'dpad_down': 
                      action = ControlAction.MOVE_BACKWARD
-                     log_debug("D-pad DOWN - MOVING BACKWARD")
+                     log_info("D-pad DOWN - MOVING BACKWARD")
                  elif standard_name == 'dpad_left': 
                      action = ControlAction.TURN_LEFT
-                     log_debug("D-pad LEFT - TURNING LEFT")
+                     log_info("D-pad LEFT - TURNING LEFT")
                  elif standard_name == 'dpad_right': 
                      action = ControlAction.TURN_RIGHT
-                     log_debug("D-pad RIGHT - TURNING RIGHT")
+                     log_info("D-pad RIGHT - TURNING RIGHT")
                  elif standard_name == 'options':
-                     log_debug("Options button - NO ACTION ASSIGNED")
+                     log_info("Options button - NO ACTION ASSIGNED")
                  elif standard_name == 'share':
-                     log_debug("Share button - NO ACTION ASSIGNED")
+                     log_info("Share button - NO ACTION ASSIGNED")
                  elif standard_name == 'ps':
-                     log_debug("PS button - NO ACTION ASSIGNED")
+                     log_info("PS button - NO ACTION ASSIGNED")
                  elif standard_name in ['l1', 'r1', 'l2_button', 'r2_button', 'l3', 'r3']:
-                     log_debug(f"{standard_name} button - NO ACTION ASSIGNED")
+                     log_info(f"{standard_name} button - NO ACTION ASSIGNED")
 
                  if action:
                      # Ensure controller has priority before sending action
                      if control_manager.current_mode == ControlMode.PS4:
                           log_info(f"PS4 Event: {standard_name} pressed -> {action.name}")
-                          control_manager.execute_action(action, source="ps4")
+                          # Add detailed debugging to see if we're getting here
+                          log_info(f"BUTTON ACTION: About to call control_manager.execute_action({action}, source='ps4')")
+                          # Force direct control actions for specific buttons to ensure they work
+                          if action == ControlAction.STOP:
+                              log_info("DIRECTLY calling robot.disable_motors()")
+                              try:
+                                  control_manager.robot.disable_motors()
+                                  state_tracker.update_state('movement', 'stopped')
+                              except Exception as e:
+                                  log_error(f"Error stopping motors: {e}")
+                          elif action == ControlAction.TOGGLE_KNIGHT_RIDER:
+                              log_info("DIRECTLY toggling knight rider")
+                              try:
+                                  control_manager.knight_rider_active = not control_manager.knight_rider_active
+                                  control_manager.party_mode_active = False
+                                  state_tracker.update_state('led_mode', 'knight_rider' if control_manager.knight_rider_active else 'off')
+                              except Exception as e:
+                                  log_error(f"Error toggling knight rider: {e}")
+                          elif action == ControlAction.TOGGLE_PARTY_MODE:
+                              log_info("DIRECTLY toggling party mode")
+                              try:
+                                  control_manager.party_mode_active = not control_manager.party_mode_active
+                                  control_manager.knight_rider_active = False
+                                  state_tracker.update_state('led_mode', 'party' if control_manager.party_mode_active else 'off')
+                              except Exception as e:
+                                  log_error(f"Error toggling party mode: {e}")
+                          
+                          # Still try the regular action execution
+                          success = control_manager.execute_action(action, source="ps4")
+                          log_info(f"Control action result: {'SUCCESS' if success else 'FAILED'}")
                      else:
                           log_warning(f"Button press ignored: Control mode is {control_manager.current_mode}, not PS4")
         else:
