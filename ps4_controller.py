@@ -17,13 +17,6 @@ from debugging import log_info, log_error, log_warning, state_tracker, log_debug
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 
-try:
-    import inputs
-    INPUTS_AVAILABLE = True
-except ImportError:
-    INPUTS_AVAILABLE = False
-    logger.warning("inputs library not found. pip install inputs")
-
 logger = logging.getLogger('trilobot.ps4')
 
 # Try to import evdev for controller input
@@ -91,46 +84,11 @@ class PS4Controller:
             17: 'dpad_y'      # D-pad Y
         }
         
-        # --- NEW: Mappings for 'inputs' library (adjust as needed) ---
-        # Based on common gamepad layouts, might need verification
-        self.inputs_button_map = {
-            'BTN_SOUTH': 'x',        # Usually A/Cross
-            'BTN_EAST': 'circle',     # Usually B/Circle
-            'BTN_NORTH': 'triangle',   # Usually Y/Triangle
-            'BTN_WEST': 'square',     # Usually X/Square
-            'BTN_TL': 'l1',
-            'BTN_TR': 'r1',
-            'BTN_TL2': 'l2_button',
-            'BTN_TR2': 'r2_button',
-            'BTN_SELECT': 'share',
-            'BTN_START': 'options',
-            'BTN_MODE': 'ps',
-            'BTN_THUMBL': 'l3',
-            'BTN_THUMBR': 'r3'
-        }
-        self.inputs_axis_map = {
-            'ABS_X': 'left_x',
-            'ABS_Y': 'left_y',
-            'ABS_RX': 'right_x',
-            'ABS_RY': 'right_y',
-            'ABS_Z': 'l2',         # Often L2 analog
-            'ABS_RZ': 'r2',        # Often R2 analog
-            'ABS_HAT0X': 'dpad_x',
-            'ABS_HAT0Y': 'dpad_y'
-        }
-        # Scale factors for inputs axes (max raw value)
-        # Common values, may need adjustment based on observed max range
-        self.inputs_axis_scale = {
-            'ABS_X': 32768.0,
-            'ABS_Y': 32768.0,
-            'ABS_RX': 32768.0,
-            'ABS_RY': 32768.0,
-            'ABS_Z': 255.0, # Triggers often 0-255
-            'ABS_RZ': 255.0,
-            'ABS_HAT0X': 1.0, # DPad usually -1, 0, 1
-            'ABS_HAT0Y': 1.0
-        }
-        # ----------------------------------------------------------
+        # --- REMOVED Mappings for 'inputs' library ---
+        # self.inputs_button_map = { ... }
+        # self.inputs_axis_map = { ... }
+        # self.inputs_axis_scale = { ... }
+        # ---------------------------------------------
         
         log_info("PS4 Controller initialized")
     
