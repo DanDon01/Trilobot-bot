@@ -91,11 +91,12 @@ def main():
             log_warning(f"Camera hardware issue: {camera_status['error']}")
         
         # Try to start the camera
-        if camera_processor.start():
-            # Update camera mode in state tracker
-            state_tracker.update_state('camera_mode', 'basic')
-        else:
-            log_warning(f"Failed to start camera processor: {camera_status['error']}")
+        # if camera_processor.start(): # COMMENTED OUT
+        #     # Update camera mode in state tracker
+        #     state_tracker.update_state('camera_mode', 'basic')
+        # else:
+        #     log_warning(f"Failed to start camera processor: {camera_status['error']}")
+        log_warning("Camera processor start skipped for testing.") # ADDED
         
         # Check for PS4 controller
         print("\n====== PS4 CONTROLLER SETUP ======")
@@ -123,18 +124,21 @@ def main():
                 sys.exit(0)
         
         # Start voice controller if enabled
-        if config.get("voice", "enabled"):
-            if voice_controller.start():
-                log_info("Voice controller started")
-            else:
-                log_warning("Failed to start voice controller")
+        # if config.get("voice", "enabled"): # COMMENTED OUT
+        #     if voice_controller.start():
+        #         log_info("Voice controller started")
+        #     else:
+        #         log_warning("Failed to start voice controller")
+        log_warning("Voice controller start skipped for testing.") # ADDED
         
         # Start web server
-        web_thread = start_web_server()
-        if not web_thread:
-            log_warning("Web server failed to start")
+        # web_thread = start_web_server() # COMMENTED OUT
+        # if not web_thread:
+        #     log_warning("Web server failed to start")
+        log_warning("Web server start skipped for testing.") # ADDED
         
         # Announce successful startup if voice is enabled
+        # log_info("Attempting startup announcement...") # COMMENTED OUT
         log_info("Attempting startup announcement...")
         if config.get("voice", "enabled"):
             try:
