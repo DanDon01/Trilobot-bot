@@ -546,6 +546,7 @@ class PS4Controller:
 
     def _process_button_event(self, event):
         """Process button press/release events (evdev)"""
+        log_debug(f"--- ENTERED _process_button_event --- Code: {event.code}")
         # Check if button code exists in our map
         button_name = self.button_map.get(event.code)
         if button_name:
@@ -572,6 +573,7 @@ class PS4Controller:
 
     def _process_axis_event(self, event):
         """Process joystick/trigger events (evdev)"""
+        log_debug(f"--- ENTERED _process_axis_event --- Code: {event.code}")
         # Check if axis code exists in our map
         axis_name = self.axis_map.get(event.code)
         if axis_name:
