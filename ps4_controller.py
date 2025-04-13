@@ -206,32 +206,39 @@ class PS4Controller:
         for i, (device, path) in enumerate(devices):
             print(f"{i+1}. {device.name} (at {path})")
         
-        print(f"{len(devices)+1}. None of these - continue without controller")
+        # Adjust numbering for clarity
+        print(f"{len(devices)+1}. None of these - continue without controller (or just press Enter)")
         print("=========================================")
         
         try:
-            choice = input("\nSelect a device number (or press Enter for none): ")
+            choice_str = input(f"\nSelect device number [1-{len(devices)}] (or Enter/0 for none): ").strip()
             
-            if not choice.strip():
+            if not choice_str or choice_str == '0': # Handle Enter or 0
+                print("No device selected. Continuing without PS4 controller.")
+                self.web_only_mode = True # Explicitly set web only mode
                 return False
             
-            choice = int(choice.strip())
+            choice = int(choice_str)
             if 1 <= choice <= len(devices):
                 selected_device, _ = devices[choice-1]
                 self.device = selected_device
                 print(f"Selected: {selected_device.name}")
                 return True
             else:
-                print("No device selected or invalid choice.")
+                print("Invalid choice number.")
+                self.web_only_mode = True
                 return False
         except ValueError:
-            print("Invalid input. No device selected.")
+            print("Invalid input (not a number). Continuing without PS4 controller.")
+            self.web_only_mode = True
             return False
         except KeyboardInterrupt:
             print("\nSelection cancelled. Continuing without controller.")
+            self.web_only_mode = True
             return False
         except Exception as e:
             print(f"Error in selection: {e}")
+            self.web_only_mode = True
             return False
     
     def display_connection_instructions(self):
@@ -354,53 +361,57 @@ class PS4Controller:
             return False
     
     def start(self):
-        """Start PS4 controller input processing"""
-        if self.running:
-            log_warning("PS4 controller already running")
-            return False
-            
+        """Initialize and start controller input handling"""
+        log_info("Attempting to start PS4 controller...")
+
+        # Check if already found by the initial check in main.py
+        if self.device:
+            log_info("Controller device already found, starting input loop.")
+            return self._start_input_thread()
+
+        # If evdev is not available, cannot proceed
         if not EVDEV_AVAILABLE:
-            log_error("Evdev module not available. Cannot start PS4 controller.")
-            # Continue in web-only mode
-            return self.prompt_web_only_mode()
-            
-        # Find controller if not already connected
-        if not self.device:
-            # First try to find an already connected controller
-            if not self.find_controller():
-                # If not found, attempt to establish Bluetooth connection
-                log_info("No PS4 controller found. Attempting Bluetooth connection...")
-                
-                # Try a quick connection first
-                for _ in range(2):
-                    if self.attempt_bluetooth_connection():
-                        break
-                    time.sleep(1)
-                
-                # If still not connected, wait for user to connect
-                if not self.device:
-                    if self.wait_for_controller():
-                        log_info("PS4 controller connected via Bluetooth")
-                        self.bluetooth_connected = True
-                    else:
-                        # No controller after waiting, prompt about web-only mode
-                        return self.prompt_web_only_mode()
-        
-        try:
-            # Start input thread
-            self.stop_input.clear()
-            self.input_thread = threading.Thread(target=self._input_loop)
-            self.input_thread.daemon = True
-            self.input_thread.start()
-            
-            self.running = True
-            log_info("PS4 controller input started")
+            log_error("Evdev module is required for PS4 controller but not installed.")
+            self.web_only_mode = True
+            return False # Indicate failure to start controller
+
+        # Try to find controller if not already found
+        if not self.find_controller():
+            log_warning("find_controller failed during start sequence.")
+            # Display connection help and potentially enter web-only mode
+            self.display_connection_instructions()
+            if not self.prompt_web_only_mode():
+                log_info("User chose to exit instead of using web-only mode.")
+                return False # User chose to exit
+            else:
+                 log_info("Proceeding in web-only mode.")
+                 # Mode will be set by web_control if used
+                 return True # Indicate success (in web-only mode)
+
+        # If controller was found by find_controller() call within start()
+        log_info(f"Controller {self.device.name} found successfully during start sequence.")
+        return self._start_input_thread()
+
+    def _start_input_thread(self):
+        """Starts the background thread for reading input"""
+        if self.running:
+            log_warning("Input thread already running.")
             return True
-        except Exception as e:
-            log_error(f"Error starting PS4 controller input: {e}")
-            # Continue in web-only mode
-            return self.prompt_web_only_mode()
-    
+
+        if not self.device:
+            log_error("Cannot start input thread, no device available.")
+            self.web_only_mode = True # Fallback to web-only
+            return False
+
+        self.stop_input.clear()
+        self.input_thread = threading.Thread(target=self._input_loop)
+        self.input_thread.daemon = True
+        self.input_thread.start()
+        self.running = True
+        log_info("PS4 controller input thread started.")
+        control_manager.set_mode(ControlMode.PS4) # Set mode only when input starts
+        return True
+
     def stop(self):
         """Stop PS4 controller input processing"""
         if not self.running:
