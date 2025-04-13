@@ -493,6 +493,8 @@ class PS4Controller:
                     self._process_button_event(event) # Use the existing evdev processor
                     processed = True
                 elif event.type == ecodes.EV_ABS:
+                    # Log ALL ABS events first
+                    log_debug(f"RAW EVDEV ABS Event --- Code: {event.code}, Value: {event.value}")
                     self._process_axis_event(event)   # Use the existing evdev processor
                     processed = True
                 elif event.type == ecodes.EV_SYN:
@@ -583,6 +585,7 @@ class PS4Controller:
                  self.axes[axis_name] = value
                  self.axes_changed_since_last_sync = True # Flag that movement needs recalculating
                  log_debug(f"EVDEV Axis event: {axis_name} = {value:.2f} (raw: {event.value})")
+                 log_debug(f"---> Set axes_changed_since_last_sync = True")
 
     def _process_movement(self):
         """Process movement based on joystick positions (uses self.axes)"""
