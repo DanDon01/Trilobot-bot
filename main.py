@@ -16,7 +16,7 @@ import socket
 import platform
 from pathlib import Path
 
-# Suppress ALSA, JACK and other system messages in terminal
+# Suppress ALSA, JACK, and other system messages in terminal - enhanced version
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
 os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
 os.environ['SDL_AUDIODRIVER'] = 'alsa'  # Use ALSA for SDL audio to avoid pulseaudio errors
@@ -26,15 +26,23 @@ os.environ['JACK_NO_AUDIO_RESERVATION'] = '1'  # Suppress JACK audio reservation
 os.environ['JACK_NO_START_SERVER'] = '1'  # Don't start JACK server automatically
 os.environ['AUDIODEV'] = 'null'  # Redirect audio to null device when not explicitly needed
 
+# New ALSA specific suppressions
+os.environ['ALSA_CARD'] = 'null'  # Try to avoid probing real hardware
+os.environ['ALSA_PCM_CARD'] = 'null'  # More specific ALSA device silencing
+os.environ['PYTHON_ALSA_SUPPRESS_WARNINGS'] = '1'  # Custom flag that some Python ALSA wrappers respect
+os.environ['ALSA_CONFIG_PATH'] = '/dev/null'  # Prevent ALSA from loading its config
+
 # Filter Python warnings
 import warnings
 warnings.filterwarnings('ignore')
 
-# Redirect stderr temporarily to suppress module loading messages
+# Create global file for error redirection - will be accessible for cleanup
+_devnull_file = open(os.devnull, 'w')
+_old_stderr = sys.stderr
+
+# Redirect stderr globally - we'll restore it after all potentially noisy imports
 try:
-    devnull = open(os.devnull, 'w')
-    old_stderr = sys.stderr
-    sys.stderr = devnull
+    sys.stderr = _devnull_file
     
     # Import potentially noisy modules here to suppress their startup messages
     import pygame.mixer  # Suppress pygame audio initialization messages
@@ -42,25 +50,32 @@ try:
         import alsaaudio  # Suppress ALSA audio initialization if used
     except ImportError:
         pass
-except Exception:
+        
+    # Additional noisy audio modules
+    try:
+        import pyaudio  # Often used with speech recognition
+    except ImportError:
+        pass
+except Exception as e:
     # If this fails, continue without redirection
-    devnull = None
-    old_stderr = None
+    # But print a note about it for debugging
+    print(f"Warning: Failed to redirect stderr to suppress audio messages: {e}")
+    
+    # Ensure we don't leave stderr in a bad state
+    sys.stderr = _old_stderr
+
+# Now restore stderr for normal operation
+sys.stderr = _old_stderr
+log_debug("stderr restored after audio module imports")
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, state_tracker
+from debugging import log_info, log_error, log_warning, log_debug, state_tracker
 from config import config
 from control_manager import control_manager
 from web_control import app as flask_app
 from camera_processor import camera_processor
 from voice_controller import voice_controller
 from ps4_controller import ps4_controller
-
-# Restore stderr
-if old_stderr:
-    sys.stderr = old_stderr
-if devnull:
-    devnull.close()
 
 logger = logging.getLogger('trilobot.main')
 
@@ -207,14 +222,14 @@ def cleanup():
     log_info("Performing cleanup...")
     
     # Restore stderr if it was redirected
-    global old_stderr, devnull
-    if 'old_stderr' in globals() and old_stderr is not None:
-        sys.stderr = old_stderr
+    global _old_stderr, _devnull_file
+    if '_old_stderr' in globals() and _old_stderr is not None:
+        sys.stderr = _old_stderr
         log_debug("stderr restored")
     
-    if 'devnull' in globals() and devnull is not None:
+    if '_devnull_file' in globals() and _devnull_file is not None:
         try:
-            devnull.close()
+            _devnull_file.close()
             log_debug("devnull file closed")
         except:
             pass

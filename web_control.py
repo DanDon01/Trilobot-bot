@@ -14,7 +14,7 @@ import logging
 from threading import Condition
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, state_tracker, log_debug
+from debugging import log_info, log_error, log_warning, state_tracker, log_debug, safe_log
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 from camera_processor import camera_processor
@@ -300,33 +300,35 @@ def stream():
     """Video streaming route."""
     def generate():
         """Generator function for video streaming."""
-        from debugging import log_debug
+        from debugging import safe_log  # Use our safer logging function
         
-        log_info("Starting camera stream generation.")
+        # Reduce log frequency - only log once at the start
+        try:
+            safe_log(logger, 'info', "Starting camera stream generation.")
+        except Exception:
+            pass  # Ignore logging errors
+            
         stream_start_time = time.time()
         frame_count = 0
         last_log_time = stream_start_time
         
         # Get the absolute path to no-camera.png
         no_camera_path = os.path.join(current_dir, 'static', 'no-camera.png')
-        log_info(f"Using fallback image at: {no_camera_path}")
         
-        # Check if the file exists
+        # Check if the file exists - silently handle this
         if not os.path.exists(no_camera_path):
-            log_error(f"Fallback image not found at {no_camera_path}")
-        
-        # Load the fallback image once
-        try:
-            with open(no_camera_path, 'rb') as f:
-                fallback_img = f.read()
-                log_info(f"Loaded fallback image successfully: {len(fallback_img)} bytes")
-        except Exception as e:
-            log_error(f"Failed to load fallback image: {e}")
+            # Use a simpler approach if file doesn't exist
             fallback_img = b''
+        else:
+            # Load the fallback image once
+            try:
+                with open(no_camera_path, 'rb') as f:
+                    fallback_img = f.read()
+            except Exception:
+                fallback_img = b''
         
         output = camera_processor.get_stream()
         if output is None:
-            log_error("Failed to get stream output from camera_processor.")
             # Return an error frame rather than None
             yield (b'--frame\r\n'
                   b'Content-Type: image/jpeg\r\n\r\n' + fallback_img + b'\r\n')
@@ -339,7 +341,6 @@ def stream():
                     frame = output.frame
                 
                 if frame is None:
-                    log_warning("Stream generator received None frame.")
                     # Yield the placeholder image when frame is None
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + fallback_img + b'\r\n')
@@ -351,18 +352,28 @@ def stream():
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 frame_count += 1
 
-                # Log frame count periodically
+                # Log frame count periodically - but less frequently
                 current_time = time.time()
-                if current_time - last_log_time >= 10.0: # Log every 10 seconds
+                if current_time - last_log_time >= 60.0: # Log only every 60 seconds
                     fps = frame_count / (current_time - stream_start_time)
-                    log_debug(f"Camera stream active: {frame_count} frames sent, ~{fps:.1f} FPS")
+                    try:
+                        safe_log(logger, 'debug', f"Camera stream active: {frame_count} frames sent, ~{fps:.1f} FPS")
+                    except Exception:
+                        pass  # Ignore logging errors
                     last_log_time = current_time
 
             except GeneratorExit:
-                log_info("Camera stream generator stopped (client disconnected).")
+                try:
+                    safe_log(logger, 'info', "Camera stream generator stopped (client disconnected).")
+                except Exception:
+                    pass  # Ignore logging errors
                 break
             except Exception as e:
-                log_error(f"Error in camera stream generator: {e}")
+                try:
+                    safe_log(logger, 'error', f"Error in camera stream generator: {e}")
+                except Exception:
+                    pass  # Ignore logging errors
+                    
                 # Yield the error image on exceptions
                 try:
                     yield (b'--frame\r\n'
@@ -371,7 +382,11 @@ def stream():
                     pass  # Ignore errors during error handling
                 time.sleep(1) # Pause before retrying after error
         
-        log_info("Exiting camera stream generation loop.")
+        # Final message - try to log but don't worry if it fails
+        try:
+            safe_log(logger, 'info', "Exiting camera stream generation loop.")
+        except Exception:
+            pass
 
     # Return the response with the generator function
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')

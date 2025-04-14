@@ -15,7 +15,7 @@ import sys
 from datetime import datetime
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, Performance
+from debugging import log_info, log_error, log_warning, Performance, safe_log
 from config import config
 
 logger = logging.getLogger('trilobot.camera')
@@ -36,21 +36,21 @@ try:
     test_camera.close()
     
     hardware_available = True
-    log_info("Camera hardware detected and available")
+    safe_log(logger, 'info', "Camera hardware detected and available")
 except ImportError as e:
     picamera2_error = f"PiCamera2 module not found: {e}"
-    log_warning(f"Camera hardware modules not available: {picamera2_error}")
-    log_warning("Make sure picamera2 is installed: sudo apt-get install -y python3-picamera2")
+    safe_log(logger, 'warning', f"Camera hardware modules not available: {picamera2_error}")
+    safe_log(logger, 'warning', "Make sure picamera2 is installed: sudo apt-get install -y python3-picamera2")
 except Exception as e:
     picamera2_error = f"Camera hardware error: {e}"
-    log_warning(f"Camera hardware error: {picamera2_error}")
-    log_warning("Make sure the camera is enabled with 'sudo raspi-config' and connected properly")
+    safe_log(logger, 'warning', f"Camera hardware error: {picamera2_error}")
+    safe_log(logger, 'warning', "Make sure the camera is enabled with 'sudo raspi-config' and connected properly")
 
 # Use numpy only if it's available, otherwise create a simple mock implementation
 try:
     import numpy as np
 except ImportError:
-    log_warning("NumPy not available, using simplified implementation")
+    safe_log(logger, 'warning', "NumPy not available, using simplified implementation")
     class MockNumpy:
         pass
     np = MockNumpy()

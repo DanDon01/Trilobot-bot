@@ -40,6 +40,29 @@ logging.getLogger().addHandler(file_handler)
 # Create module logger
 logger = logging.getLogger('trilobot')
 
+# Add a safeguard for logging to catch errors when handlers are closed
+def safe_log(logger_obj, level, message, *args, **kwargs):
+    """Log safely, catching errors if handlers are closed"""
+    try:
+        if level == 'debug':
+            logger_obj.debug(message, *args, **kwargs)
+        elif level == 'info':
+            logger_obj.info(message, *args, **kwargs)
+        elif level == 'warning':
+            logger_obj.warning(message, *args, **kwargs)
+        elif level == 'error':
+            logger_obj.error(message, *args, **kwargs)
+    except ValueError as e:
+        if "I/O operation on closed file" in str(e):
+            # Silently ignore closed file errors to avoid cascading errors
+            pass
+        else:
+            # Print to stdout as a last resort
+            print(f"Logging error: {e}, trying to log: {message}")
+    except Exception as e:
+        # Print to stdout as a last resort
+        print(f"Unexpected logging error: {e}, trying to log: {message}")
+
 class Performance:
     """Track performance metrics for specific operations"""
     
@@ -50,7 +73,7 @@ class Performance:
             start_time = time.time()
             result = func(*args, **kwargs)
             elapsed_time = time.time() - start_time
-            logger.debug(f"Function {func.__name__} took {elapsed_time:.4f} seconds to execute")
+            safe_log(logger, 'debug', f"Function {func.__name__} took {elapsed_time:.4f} seconds to execute")
             return result
         return wrapper
 
@@ -73,44 +96,44 @@ class StateTracker:
             old_value = self.states[key]
             self.states[key] = value
             if old_value != value:
-                logger.info(f"State change: {key} changed from '{old_value}' to '{value}'")
+                safe_log(logger, 'info', f"State change: {key} changed from '{old_value}' to '{value}'")
         else:
-            logger.warning(f"Attempted to update unknown state key: {key}")
+            safe_log(logger, 'warning', f"Attempted to update unknown state key: {key}")
     
     def get_state(self, key):
         """Get current value of a state"""
         if key in self.states:
             return self.states[key]
         else:
-            logger.warning(f"Attempted to access unknown state key: {key}")
+            safe_log(logger, 'warning', f"Attempted to access unknown state key: {key}")
             return None
     
     def add_error(self, error):
         """Add an error to the error list"""
         self.states['errors'].append(error)
-        logger.error(f"Error added: {error}")
+        safe_log(logger, 'error', f"Error added: {error}")
     
     def clear_error(self, error):
         """Remove an error from the error list"""
         if error in self.states['errors']:
             self.states['errors'].remove(error)
-            logger.info(f"Error cleared: {error}")
+            safe_log(logger, 'info', f"Error cleared: {error}")
 
 # Create global state tracker instance
 state_tracker = StateTracker()
 
 def log_info(message):
     """Log an info message"""
-    logger.info(message)
+    safe_log(logger, 'info', message)
 
 def log_error(message, exc_info=False):
     """Log an error message"""
-    logger.error(message, exc_info=exc_info)
+    safe_log(logger, 'error', message, exc_info=exc_info)
 
 def log_warning(message):
     """Log a warning message"""
-    logger.warning(message)
+    safe_log(logger, 'warning', message)
 
 def log_debug(message):
     """Log a debug message"""
-    logger.debug(message) 
+    safe_log(logger, 'debug', message) 

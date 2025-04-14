@@ -11,31 +11,25 @@ import threading
 import logging
 import json
 from queue import Queue
-import pygame
 import tempfile
 import hashlib
 import shutil
 import stat
 from enum import Enum
 
-# Redirect ALSA errors to /dev/null to suppress them in the terminal
-# Must be done before audio libraries are initialized
-os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
+# These environment variables are now set in main.py, but we'll include them here as well
+# for when voice_controller is run directly in testing
+if 'PYGAME_HIDE_SUPPORT_PROMPT' not in os.environ:
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
+if 'ALSA_OUTPUT_GIVE_UP' not in os.environ:
+    os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
 
-# Suppress ALSA and JACK error messages in terminal
-try:
-    # Redirect stderr temporarily when initializing audio
-    devnull = open(os.devnull, 'w')
-    old_stderr = os.dup(2)  # Save the original stderr file descriptor
-    os.dup2(devnull.fileno(), 2)  # Redirect stderr to /dev/null
-except Exception:
-    # If this fails, just continue without redirection
-    devnull = None
-    old_stderr = None
+# We no longer need to do stderr redirection here since main.py handles it globally
+# But we'll import pygame here to ensure it's loaded with the environment variables set
+import pygame
 
 # Import local modules
-from debugging import log_info, log_error, log_warning, log_debug, state_tracker
+from debugging import log_info, log_error, log_warning, log_debug, state_tracker, safe_log
 from config import config
 from control_manager import control_manager, ControlAction
 
@@ -61,25 +55,25 @@ ELEVENLABS_AVAILABLE = False
 try:
     import speech_recognition as sr
     SPEECH_RECOGNITION_AVAILABLE = True
-    logger.info("Successfully imported SpeechRecognition.")
+    safe_log(logger, 'info', "Successfully imported SpeechRecognition.")
 except ImportError as e_imp:
     # This is the expected error if the package is just missing
-    logger.warning(f"ImportError for SpeechRecognition: {e_imp}. Voice recognition disabled.")
+    safe_log(logger, 'warning', f"ImportError for SpeechRecognition: {e_imp}. Voice recognition disabled.")
 except Exception as e_gen:
     # This catches other errors during import (e.g., dependencies missing)
-    logger.error(f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.", exc_info=True)
+    safe_log(logger, 'error', f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.")
 
 try:
     # *** Import the client class ***
     from elevenlabs.client import ElevenLabs
     ELEVENLABS_AVAILABLE = True
-    logger.info("Successfully imported ElevenLabs client.")
+    safe_log(logger, 'info', "Successfully imported ElevenLabs client.")
 except ImportError as e_imp:
-    logger.warning(f"ImportError for ElevenLabs client: {e_imp}. Could be missing package. Voice synthesis disabled.")
+    safe_log(logger, 'warning', f"ImportError for ElevenLabs client: {e_imp}. Could be missing package. Voice synthesis disabled.")
     # Do not modify global ELEVENLABS_AVAILABLE here
     # self.eleven_client will remain None, which prevents usage
 except Exception as e_gen:
-    logger.error(f"FAILED to import ElevenLabs client due to an unexpected error: {e_gen}. Voice synthesis disabled.", exc_info=True)
+    safe_log(logger, 'error', f"FAILED to import ElevenLabs client due to an unexpected error: {e_gen}. Voice synthesis disabled.")
     # Do not modify global ELEVENLABS_AVAILABLE here
     # self.eleven_client will remain None, which prevents usage
 
@@ -191,22 +185,8 @@ class VoiceController:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
             self.audio_available = True
             
-            # Restore stderr after audio initialization
-            if old_stderr is not None:
-                os.dup2(old_stderr, 2)  # Restore original stderr
-                os.close(old_stderr)
-            if devnull is not None:
-                devnull.close()
-                
             log_info("Audio playback initialized")
         except pygame.error as e:
-            # Restore stderr in case of error too
-            if old_stderr is not None:
-                os.dup2(old_stderr, 2)
-                os.close(old_stderr)
-            if devnull is not None:
-                devnull.close()
-                
             log_warning(f"Failed to initialize audio: {e}")
             log_warning("Voice synthesis (speech output) will be disabled")
         
