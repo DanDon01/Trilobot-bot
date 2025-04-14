@@ -124,11 +124,11 @@ def main():
                 sys.exit(0)
         
         # Start voice controller if enabled
-        # if config.get("voice", "enabled"): # COMMENTED OUT
-        #     if voice_controller.start():
-        #         log_info("Voice controller started")
-        #     else:
-        #         log_warning("Failed to start voice controller")
+        if config.get("voice", "enabled"): # COMMENTED OUT
+             if voice_controller.start():
+                 log_info("Voice controller started")
+             else:
+                 log_warning("Failed to start voice controller")
         log_warning("Voice controller start skipped for testing.") # ADDED
         
         # Start web server
@@ -138,12 +138,11 @@ def main():
         #log_warning("Web server start skipped for testing.") # REMOVED
         
         # Announce successful startup if voice is enabled
-        # log_info("Attempting startup announcement...") # COMMENTED OUT
         log_info("Attempting startup announcement...")
         if config.get("voice", "enabled"):
             try:
                 # Use a short delay to ensure audio system is ready
-                time.sleep(1.0)
+                time.sleep(4.0)
                 voice_controller.speak("Trilobot systems online. Camera activated.")
                 log_info("Startup announcement sent to voice controller.")
             except Exception as e:
