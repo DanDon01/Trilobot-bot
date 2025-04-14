@@ -66,7 +66,8 @@ except Exception as e:
 
 # Now restore stderr for normal operation
 sys.stderr = _old_stderr
-log_debug("stderr restored after audio module imports")
+# Using print since logging isn't imported yet
+print("Stderr restored after audio module imports")
 
 # Import local modules
 from debugging import log_info, log_error, log_warning, log_debug, state_tracker
