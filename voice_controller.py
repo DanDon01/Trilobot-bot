@@ -218,14 +218,26 @@ class VoiceController:
         if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE and self.eleven_client:
             try:
                 # Get the voice name and ID from config
-                voice_name = config.get("voice", "elevenlabs_voice_id", fallback="Josh") # Added fallback
-                model_id = config.get("voice", "elevenlabs_model_id", fallback="eleven_multilingual_v2") # Added configurable model
-                output_format = config.get("voice", "elevenlabs_output_format", fallback="mp3_44100_128") # Added format
+                voice_name = config.get("voice", "elevenlabs_voice_id")
+                if voice_name is None:
+                    voice_name = "Josh"  # Default if not found
+                
+                model_id = config.get("voice", "elevenlabs_model_id") 
+                if model_id is None:
+                    model_id = "eleven_multilingual_v2"  # Default if not found
+                
+                output_format = config.get("voice", "elevenlabs_output_format")
+                if output_format is None:
+                    output_format = "mp3_44100_128"  # Default if not found
+                
                 voice_id = None
                 
                 # Look up the voice ID from the voices dictionary if provided
-                voices_dict = config.get("voice", "elevenlabs_voices", fallback={})
-                if isinstance(voices_dict, dict) and voice_name in voices_dict:
+                voices_dict = config.get("voice", "elevenlabs_voices")
+                if voices_dict is None:
+                    voices_dict = {}  # Default if not found
+                
+                if voice_name in voices_dict:
                     voice_id = voices_dict[voice_name]
                 else:
                     # Fallback to using the name as the ID directly if not found in mapping
@@ -398,7 +410,7 @@ class VoiceController:
         for phrase, action in self.command_map.items():
             if command == phrase:
                 log_info(f"Executing action: {action.name} from voice command: '{command}'")
-                control_manager.add_action(action, source="voice")
+                control_manager.execute_action(action, source="voice")
                 processed = True
                 break
                 

@@ -143,7 +143,7 @@ def main():
         if config.get("voice", "enabled"):
             try:
                 # Use a short delay to ensure audio system is ready
-                time.sleep(4.0)
+                time.sleep(10.0)
                 voice_controller.speak("Trilobot systems online. Camera activated.")
                 log_info("Startup announcement sent to voice controller.")
             except Exception as e:
