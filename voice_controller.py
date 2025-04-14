@@ -62,7 +62,18 @@ class VoiceController:
         
         # Create cache directory if it doesn't exist
         if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
+            try:
+                log_info(f"Creating voice responses cache directory: {self.cache_dir}")
+                os.makedirs(self.cache_dir, exist_ok=True)
+                # Make the directory accessible to all users
+                try:
+                    import stat
+                    os.chmod(self.cache_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)  # 0777 permissions
+                    log_info(f"Set full permissions on cache directory: {self.cache_dir}")
+                except Exception as perm_e:
+                    log_warning(f"Could not set permissions on cache directory: {perm_e}")
+            except Exception as e:
+                log_error(f"Failed to create cache directory: {e}")
             
         # Initialize pygame for audio playback
         self.audio_available = False

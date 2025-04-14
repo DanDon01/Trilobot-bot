@@ -41,6 +41,8 @@
         "activation_phrase": "hey trilobot",
         "elevenlabs_api_key": "",
         "elevenlabs_voice_id": "Josh",
+        "elevenlabs_model_id": "eleven_multilingual_v2",
+        "elevenlabs_output_format": "mp3_44100_128",
         "elevenlabs_voices": {
             "Josh": "TxGEqnHWrfWFTfGW9XjX",
             "Rachel": "21m00Tcm4TlvDq8ikWAM",
