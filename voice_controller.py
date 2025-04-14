@@ -14,6 +14,8 @@ from queue import Queue
 import pygame
 import tempfile
 import hashlib
+import shutil
+import stat
 
 # Import local modules
 from debugging import log_info, log_error, log_warning, log_debug, state_tracker
@@ -56,7 +58,9 @@ class VoiceController:
     
     def __init__(self):
         self.enabled = config.get("voice", "enabled")
-        self.cache_dir = config.get("voice", "cache_dir")
+        
+        # Use a cache directory in /tmp which should be writable by everyone
+        self.cache_dir = "/tmp/trilobot_responses"
         self.volume = config.get("voice", "volume") / 100.0  # Convert to 0-1 range
         self.activation_phrase = config.get("voice", "activation_phrase").lower()
         
@@ -270,20 +274,34 @@ class VoiceController:
                      raise ValueError("ElevenLabs API returned empty audio data.")
                      
                 # Save the audio bytes to the cache file
-                with open(cache_file, "wb") as f:
-                    # Iterate over chunks if it's a streaming response (though convert should return bytes)
-                    if hasattr(audio_bytes, '__iter__') and not isinstance(audio_bytes, bytes):
-                         log_debug("Received streaming audio data, writing chunks...")
-                         for chunk in audio_bytes:
-                              if chunk:
-                                   f.write(chunk)
-                    elif isinstance(audio_bytes, bytes):
-                         log_debug("Received bytes audio data, writing directly...")
-                         f.write(audio_bytes)
-                    else:
-                         raise TypeError(f"Unexpected audio data type from ElevenLabs: {type(audio_bytes)}")
-                         
-                log_debug(f"Generated TTS audio and saved to {cache_file}")
+                try:
+                    # Create a temporary file first, then move it to ensure atomic write
+                    fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(cache_file), suffix='.mp3.tmp')
+                    log_debug(f"Created temp file at: {temp_path}")
+                    
+                    # Write the data
+                    with os.fdopen(fd, 'wb') as temp_file:
+                        # Write data based on its type
+                        if hasattr(audio_bytes, '__iter__') and not isinstance(audio_bytes, bytes):
+                            log_debug("Received streaming audio data, writing chunks...")
+                            for chunk in audio_bytes:
+                                if chunk:
+                                    temp_file.write(chunk)
+                        elif isinstance(audio_bytes, bytes):
+                            log_debug("Received bytes audio data, writing directly...")
+                            temp_file.write(audio_bytes)
+                        else:
+                            raise TypeError(f"Unexpected audio data type from ElevenLabs: {type(audio_bytes)}")
+                    
+                    # Set permissions on the temp file before moving
+                    os.chmod(temp_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)  # 0666
+                    
+                    # Move the temp file to the target location
+                    shutil.move(temp_path, cache_file)
+                    log_debug(f"Generated TTS audio and saved to {cache_file}")
+                    
+                except Exception as file_e:
+                    log_error(f"Failed to save audio file: {file_e}", exc_info=True)
 
             except Exception as e:
                 log_error(f"Failed to generate TTS using ElevenLabs client for: '{text}' - {e}", exc_info=True)
