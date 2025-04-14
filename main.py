@@ -16,37 +16,8 @@ import socket
 import platform
 from pathlib import Path
 
-# Suppress ALSA, JACK, and other system messages in terminal - enhanced version
+# Only keep minimal message suppression that won't break functionality
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
-os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
-os.environ['SDL_AUDIODRIVER'] = 'alsa'  # Use ALSA for SDL audio to avoid pulseaudio errors
-
-# Additional suppressions for audio library messages
-os.environ['JACK_NO_AUDIO_RESERVATION'] = '1'  # Suppress JACK audio reservation messages
-os.environ['JACK_NO_START_SERVER'] = '1'  # Don't start JACK server automatically
-os.environ['AUDIODEV'] = 'null'  # Redirect audio to null device when not explicitly needed
-
-# New ALSA specific suppressions
-os.environ['ALSA_CARD'] = 'null'  # Try to avoid probing real hardware
-os.environ['ALSA_PCM_CARD'] = 'null'  # More specific ALSA device silencing
-os.environ['PYTHON_ALSA_SUPPRESS_WARNINGS'] = '1'  # Custom flag that some Python ALSA wrappers respect
-os.environ['ALSA_CONFIG_PATH'] = '/dev/null'  # Prevent ALSA from loading its config
-
-# Prevent PyAudio/PortAudio from scanning hardware ALSA devices
-os.environ['AUDIODEV'] = '/dev/null'  # Force audio to dummy device
-os.environ['PORTAUDIO_ENABLE_ALSA'] = '0'  # Try to disable ALSA in PortAudio
-os.environ['PORTAUDIO_ENABLE_OSS'] = '0'  # Disable OSS audio too
-os.environ['PORTAUDIO_ENABLE_JACK'] = '0'  # Disable JACK audio system
-os.environ['PULSE_SERVER'] = 'none'  # Disable PulseAudio
-os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy SDL audio instead of alsa
-
-# For Windows compatibility
-if platform.system() == 'Windows':
-    os.environ['PYTHONASYNCIODEBUG'] = '0'  # Disable asyncio debug on Windows
-    
-# Filter Python warnings
-import warnings
-warnings.filterwarnings('ignore')
 
 # Create global file for error redirection - will be accessible for cleanup
 _devnull_file = open(os.devnull, 'w')
@@ -58,16 +29,6 @@ try:
     
     # Import potentially noisy modules here to suppress their startup messages
     import pygame.mixer  # Suppress pygame audio initialization messages
-    try:
-        import alsaaudio  # Suppress ALSA audio initialization if used
-    except ImportError:
-        pass
-        
-    # Additional noisy audio modules
-    try:
-        import pyaudio  # Often used with speech recognition
-    except ImportError:
-        pass
 except Exception as e:
     # If this fails, continue without redirection
     # But print a note about it for debugging
@@ -193,6 +154,7 @@ def main():
                 sys.exit(0)
         
         # Start voice controller if enabled
+        voice_available = True
         if config.get("voice", "enabled"):
             try:
                 log_info("Attempting to start voice controller...")
@@ -203,14 +165,18 @@ def main():
                         log_info("Voice controller started successfully")
                     else:
                         log_warning("Voice controller failed to start - continuing without voice control")
+                        voice_available = False
                 except Exception as vc_e:
                     log_error(f"Exception during voice controller startup: {vc_e}")
                     log_warning("Continuing without voice control due to error")
+                    voice_available = False
             except Exception as e:
                 log_error(f"Unhandled error starting voice controller: {e}")
                 log_warning("Voice control disabled due to errors")
+                voice_available = False
         else:
             log_info("Voice control disabled in config")
+            voice_available = False
         
         # Start web server
         web_thread = start_web_server() # UNCOMMENTED
@@ -218,18 +184,19 @@ def main():
             log_warning("Web server failed to start")
         #log_warning("Web server start skipped for testing.") # REMOVED
         
-        # Announce successful startup if voice is enabled
+        # Announce successful startup if voice is enabled and available
         log_info("Attempting startup announcement...")
-        if config.get("voice", "enabled"):
+        if config.get("voice", "enabled") and voice_available and voice_start_success:
             try:
                 # Use a short delay to ensure audio system is ready
-                time.sleep(10.0)
+                time.sleep(5.0)
                 voice_controller.speak("Trilobot systems online. Camera activated.")
                 log_info("Startup announcement sent to voice controller.")
             except Exception as e:
                 log_error(f"Error during startup announcement: {e}")
+                # Don't disable voice on announcement error - the core functionality might still work
         else:
-            log_info("Voice control disabled, skipping announcement.")
+            log_info("Voice control disabled or unavailable, skipping announcement.")
         
         # Main loop - keep running until shutdown
         log_info("Trilobot application running. Press Ctrl+C to stop.")
