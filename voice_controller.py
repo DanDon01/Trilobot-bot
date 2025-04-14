@@ -16,6 +16,7 @@ import hashlib
 import shutil
 import stat
 from enum import Enum
+import platform
 
 # These environment variables are now set in main.py, but we'll include them here as well
 # for when voice_controller is run directly in testing
@@ -52,16 +53,24 @@ class VoiceStatus(Enum):
 SPEECH_RECOGNITION_AVAILABLE = False
 ELEVENLABS_AVAILABLE = False
 
-try:
-    import speech_recognition as sr
-    SPEECH_RECOGNITION_AVAILABLE = True
-    safe_log(logger, 'info', "Successfully imported SpeechRecognition.")
-except ImportError as e_imp:
-    # This is the expected error if the package is just missing
-    safe_log(logger, 'warning', f"ImportError for SpeechRecognition: {e_imp}. Voice recognition disabled.")
-except Exception as e_gen:
-    # This catches other errors during import (e.g., dependencies missing)
-    safe_log(logger, 'error', f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.")
+# Only try to import speech_recognition on Linux platforms
+# Windows compatibility is limited and prone to errors
+if platform.system() != 'Windows':
+    try:
+        import speech_recognition as sr
+        # Just test if we can import it, but don't initialize any audio devices yet
+        SPEECH_RECOGNITION_AVAILABLE = True
+        safe_log(logger, 'info', "Successfully imported SpeechRecognition.")
+    except ImportError as e_imp:
+        # This is the expected error if the package is just missing
+        safe_log(logger, 'warning', f"ImportError for SpeechRecognition: {e_imp}. Voice recognition disabled.")
+    except Exception as e_gen:
+        # This catches other errors during import (e.g., dependencies missing)
+        safe_log(logger, 'error', f"FAILED to import SpeechRecognition due to an unexpected error: {e_gen}. Voice recognition disabled.")
+        sr = None
+else:
+    safe_log(logger, 'warning', "Voice recognition not supported on Windows platform.")
+    sr = None
 
 try:
     # *** Import the client class ***
@@ -86,6 +95,14 @@ class VoiceController:
         self.status = VoiceStatus.IDLE
         self.status_lock = threading.Lock()
         self.is_running = False
+        self.audio_available = False
+        self.microphone = None
+        self.recognition_thread = None
+        
+        # Platform compatibility check
+        self.is_compatible_platform = platform.system() != 'Windows'
+        if not self.is_compatible_platform:
+            log_warning("Voice controller not fully supported on Windows platform")
         
         self.wake_words = ["hey trilobot", "hey robot", "hey tri bot", "hey jonny 4", "robot", "commander"]
         
@@ -95,8 +112,8 @@ class VoiceController:
             log_info("Voice control is disabled in configuration")
             return
             
-        # Initialize speech recognition
-        if sr:
+        # Initialize speech recognition - but only on compatible platforms
+        if self.is_compatible_platform and sr:
             try:
                 self.recognizer = sr.Recognizer()
                 # Set optimal parameters for Trilobot environment
@@ -112,7 +129,7 @@ class VoiceController:
                 log_error(f"Failed to initialize speech recognition: {e}")
                 self.recognizer = None
         else:
-            log_warning("SpeechRecognition library not available")
+            log_warning(f"SpeechRecognition library not available or platform not compatible")
             self.recognizer = None
             
         # Initialize ElevenLabs TTS if available
@@ -181,14 +198,35 @@ class VoiceController:
         # Initialize pygame for audio playback
         self.audio_available = False
         try:
-            # Initialize pygame mixer with conservative settings to reduce errors
-            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
-            self.audio_available = True
-            
-            log_info("Audio playback initialized")
-        except pygame.error as e:
+            # Skip audio initialization on non-compatible platforms
+            if not self.is_compatible_platform:
+                log_warning("Audio initialization skipped on non-compatible platform")
+                self.audio_available = False
+            else:
+                # Try to set SDL driver to dummy before pygame init
+                os.environ['SDL_AUDIODRIVER'] = 'dummy'
+                try:
+                    # Initialize pygame mixer with conservative settings to reduce errors
+                    pygame.mixer.init(frequency=44100, size=-16, channels=1, buffer=4096)
+                    self.audio_available = True
+                    log_info("Audio playback initialized with dummy driver")
+                except pygame.error as dummy_error:
+                    # If dummy driver fails, try without specifying driver
+                    log_warning(f"Dummy audio failed: {dummy_error} - trying default driver")
+                    try:
+                        # Remove the dummy driver setting
+                        if 'SDL_AUDIODRIVER' in os.environ:
+                            del os.environ['SDL_AUDIODRIVER']
+                        pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=4096)
+                        self.audio_available = True
+                        log_info("Audio playback initialized with default driver")
+                    except pygame.error as default_error:
+                        log_warning(f"Default audio failed: {default_error}")
+                        self.audio_available = False
+        except Exception as e:
             log_warning(f"Failed to initialize audio: {e}")
             log_warning("Voice synthesis (speech output) will be disabled")
+            self.audio_available = False
         
         # Speech recognition components
         self.microphone = None
@@ -264,38 +302,81 @@ class VoiceController:
     def start(self):
         """Start the voice controller"""
         if not self.enabled or self.is_running:
-            return
+            return False
             
+        # Check platform compatibility first
+        if platform.system() == 'Windows':
+            log_warning("Voice control not supported on Windows")
+            return False
+            
+        # Check for basic modules
         if not sr or not self.recognizer:
-            log_warning("Voice recognition not available")
-            return
+            log_warning("Voice recognition not available - speech_recognition module missing")
+            return False
             
         log_info("Starting voice controller...")
         
-        # Initialize microphone if not already done
+        # Try to initialize microphone if not already done
         try:
-            # Add short delay to ensure audio system is ready
-            time.sleep(0.5)
-            self.microphone = sr.Microphone()
-            log_info("Microphone initialized")
+            # Add a protective wrapper around microphone initialization
+            # This is where PyAudio/PortAudio often crashes
+            try:
+                # Add short delay to ensure audio system is ready
+                time.sleep(0.5)
+                
+                # Get list of microphone devices first - this is the risky part
+                log_debug("Attempting to get audio device list...")
+                available_mics = None
+                try:
+                    # Try to safely get microphone devices 
+                    available_mics = sr.Microphone.list_microphone_names()
+                    log_debug(f"Available microphones: {available_mics}")
+                except (OSError, IOError, AssertionError) as e:
+                    # Common errors when audio devices can't be accessed
+                    log_warning(f"Could not list microphones: {e}")
+                    return False
+                except Exception as e:
+                    log_warning(f"Unexpected error listing microphones: {e}")
+                    return False
+                    
+                # Only continue if we could list devices successfully
+                if available_mics is None or len(available_mics) == 0:
+                    log_warning("No microphones found")
+                    return False
+                
+                # Try to initialize the default microphone
+                self.microphone = sr.Microphone()
+                log_info("Microphone initialized")
+                
+                # Adjust for ambient noise - but catch errors here too
+                try:
+                    with self.microphone as source:
+                        log_info("Adjusting for ambient noise...")
+                        self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                        log_info(f"Energy threshold set to {self.recognizer.energy_threshold}")
+                except Exception as noise_e:
+                    log_error(f"Failed to adjust for ambient noise: {noise_e}")
+                    return False
+            except (OSError, IOError, AssertionError) as e:
+                log_error(f"Audio device error: {e}")
+                return False
+            except Exception as e:
+                log_error(f"Failed to initialize microphone: {e}")
+                return False
+                
+            # Start recognition thread
+            self.stop_event.clear()
+            self.recognition_thread = threading.Thread(target=self._recognize_continuously)
+            self.recognition_thread.daemon = True
+            self.recognition_thread.start()
+            self.is_running = True
+            log_info("Voice recognition started")
+            return True
             
-            # Adjust for ambient noise
-            with self.microphone as source:
-                log_info("Adjusting for ambient noise...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                log_info(f"Energy threshold set to {self.recognizer.energy_threshold}")
         except Exception as e:
-            log_error(f"Failed to initialize microphone: {e}")
-            return
-            
-        # Start recognition thread
-        self.stop_event.clear()
-        self.recognition_thread = threading.Thread(target=self._recognize_continuously)
-        self.recognition_thread.daemon = True
-        self.recognition_thread.start()
-        self.is_running = True
-        log_info("Voice recognition started")
-        
+            log_error(f"Unexpected error starting voice controller: {e}")
+            return False
+
     def stop(self):
         """Stop the voice controller"""
         if not self.is_running:

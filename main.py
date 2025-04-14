@@ -32,6 +32,18 @@ os.environ['ALSA_PCM_CARD'] = 'null'  # More specific ALSA device silencing
 os.environ['PYTHON_ALSA_SUPPRESS_WARNINGS'] = '1'  # Custom flag that some Python ALSA wrappers respect
 os.environ['ALSA_CONFIG_PATH'] = '/dev/null'  # Prevent ALSA from loading its config
 
+# Prevent PyAudio/PortAudio from scanning hardware ALSA devices
+os.environ['AUDIODEV'] = '/dev/null'  # Force audio to dummy device
+os.environ['PORTAUDIO_ENABLE_ALSA'] = '0'  # Try to disable ALSA in PortAudio
+os.environ['PORTAUDIO_ENABLE_OSS'] = '0'  # Disable OSS audio too
+os.environ['PORTAUDIO_ENABLE_JACK'] = '0'  # Disable JACK audio system
+os.environ['PULSE_SERVER'] = 'none'  # Disable PulseAudio
+os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy SDL audio instead of alsa
+
+# For Windows compatibility
+if platform.system() == 'Windows':
+    os.environ['PYTHONASYNCIODEBUG'] = '0'  # Disable asyncio debug on Windows
+    
 # Filter Python warnings
 import warnings
 warnings.filterwarnings('ignore')
@@ -182,10 +194,21 @@ def main():
         
         # Start voice controller if enabled
         if config.get("voice", "enabled"):
-            if voice_controller.start():
-                log_info("Voice controller started")
-            else:
-                log_warning("Failed to start voice controller")
+            try:
+                log_info("Attempting to start voice controller...")
+                voice_start_success = False
+                try:
+                    voice_start_success = voice_controller.start()
+                    if voice_start_success:
+                        log_info("Voice controller started successfully")
+                    else:
+                        log_warning("Voice controller failed to start - continuing without voice control")
+                except Exception as vc_e:
+                    log_error(f"Exception during voice controller startup: {vc_e}")
+                    log_warning("Continuing without voice control due to error")
+            except Exception as e:
+                log_error(f"Unhandled error starting voice controller: {e}")
+                log_warning("Voice control disabled due to errors")
         else:
             log_info("Voice control disabled in config")
         
