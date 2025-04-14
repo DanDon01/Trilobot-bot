@@ -124,12 +124,13 @@ def main():
                 sys.exit(0)
         
         # Start voice controller if enabled
-        if config.get("voice", "enabled"): # COMMENTED OUT
-             if voice_controller.start():
-                 log_info("Voice controller started")
-             else:
-                 log_warning("Failed to start voice controller")
-        log_warning("Voice controller start skipped for testing.") # ADDED
+        if config.get("voice", "enabled"):
+            if voice_controller.start():
+                log_info("Voice controller started")
+            else:
+                log_warning("Failed to start voice controller")
+        else:
+            log_info("Voice control disabled in config")
         
         # Start web server
         web_thread = start_web_server() # UNCOMMENTED

@@ -97,9 +97,9 @@ def log_info(message):
     """Log an info message"""
     logger.info(message)
 
-def log_error(message):
+def log_error(message, exc_info=False):
     """Log an error message"""
-    logger.error(message)
+    logger.error(message, exc_info=exc_info)
 
 def log_warning(message):
     """Log a warning message"""
