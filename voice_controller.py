@@ -70,10 +70,8 @@ except Exception as e_gen:
 class VoiceController:
     """Controls voice recognition and TTS for the Trilobot"""
     
-    def __init__(self, config, control_manager):
+    def __init__(self):
         """Initialize the voice controller with the given configuration"""
-        self.config = config
-        self.control_manager = control_manager
         self.stop_event = threading.Event()
         self.status = VoiceStatus.IDLE
         self.status_lock = threading.Lock()
@@ -82,7 +80,7 @@ class VoiceController:
         self.wake_words = ["hey trilobot", "hey robot", "hey tri bot", "hey try bot", "robot"]
         
         # Get voice config
-        self.enabled = self.config.get('voice', {}).get('enabled', False)
+        self.enabled = config.get('voice', 'enabled') if config.get('voice', 'enabled') is not None else False
         if not self.enabled:
             log_info("Voice control is disabled in configuration")
             return
@@ -108,8 +106,8 @@ class VoiceController:
             self.recognizer = None
             
         # Initialize ElevenLabs TTS if available
-        self.elevenlabs_api_key = self.config.get('voice', {}).get('elevenlabs_api_key', '')
-        self.elevenlabs_voice_id = self.config.get('voice', {}).get('elevenlabs_voice_id', 'premade/adam')
+        self.elevenlabs_api_key = config.get('voice', 'elevenlabs_api_key')
+        self.elevenlabs_voice_id = config.get('voice', 'elevenlabs_voice_id') or 'premade/adam'
         self.tts_initialized = False
         
         if not self.elevenlabs_api_key:
@@ -140,8 +138,9 @@ class VoiceController:
         except Exception as e:
             log_error(f"Failed to initialize VLC media player: {e}")
         
-        self.volume = config.get("voice", "volume") / 100.0  # Convert to 0-1 range
-        self.activation_phrase = config.get("voice", "activation_phrase").lower()
+        self.volume = config.get("voice", "volume") / 100.0 if config.get("voice", "volume") is not None else 0.5  # Convert to 0-1 range
+        self.activation_phrase = config.get("voice", "activation_phrase") or "hey trilobot"
+        self.activation_phrase = self.activation_phrase.lower()
         
         # Create cache directory if it doesn't exist
         if not os.path.exists(self.cache_dir):
@@ -333,31 +332,31 @@ class VoiceController:
                     self.speak("I'm operational and ready for your commands.")
                 elif "stop" in command or "halt" in command:
                     self.speak("Stopping all motors.")
-                    self.control_manager.execute_action(ControlAction.STOP, source="voice")
+                    control_manager.execute_action(ControlAction.STOP, source="voice")
                 elif "forward" in command:
                     self.speak("Moving forward.")
-                    self.control_manager.execute_action(ControlAction.MOVE_FORWARD, source="voice")
+                    control_manager.execute_action(ControlAction.MOVE_FORWARD, source="voice")
                 elif "backward" in command or "back" in command:
                     self.speak("Moving backward.")
-                    self.control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="voice")
+                    control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="voice")
                 elif "left" in command:
                     self.speak("Turning left.")
-                    self.control_manager.execute_action(ControlAction.TURN_LEFT, source="voice")
+                    control_manager.execute_action(ControlAction.TURN_LEFT, source="voice")
                 elif "right" in command:
                     self.speak("Turning right.")
-                    self.control_manager.execute_action(ControlAction.TURN_RIGHT, source="voice")
+                    control_manager.execute_action(ControlAction.TURN_RIGHT, source="voice")
                 elif "photo" in command or "picture" in command or "snapshot" in command:
                     self.speak("Taking a photo.")
-                    self.control_manager.execute_action(ControlAction.TAKE_PHOTO, source="voice")
+                    control_manager.execute_action(ControlAction.TAKE_PHOTO, source="voice")
                 elif "party" in command:
                     self.speak("Party mode activated!")
-                    self.control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="voice")
+                    control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="voice")
                 elif "knight" in command or "rider" in command:
                     self.speak("Knight Rider mode activated!")
-                    self.control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="voice")
+                    control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="voice")
                 elif "led" in command or "light" in command:
                     self.speak("Toggling LEDs.")
-                    self.control_manager.execute_action(ControlAction.TOGGLE_LEDS, source="voice")
+                    control_manager.execute_action(ControlAction.TOGGLE_LIGHT, source="voice")
                 else:
                     self.speak(f"I heard you say {command}, but I don't know how to handle that command.")
                 
@@ -394,24 +393,16 @@ class VoiceController:
         if not os.path.exists(cache_file) and ELEVENLABS_AVAILABLE and self.eleven_client:
             try:
                 # Get the voice name and ID from config
-                voice_name = config.get("voice", "elevenlabs_voice_id")
-                if voice_name is None:
-                    voice_name = "Josh"  # Default if not found
+                voice_name = config.get("voice", "elevenlabs_voice_id") or "Josh"
                 
-                model_id = config.get("voice", "elevenlabs_model_id") 
-                if model_id is None:
-                    model_id = "eleven_multilingual_v2"  # Default if not found
+                model_id = config.get("voice", "elevenlabs_model_id") or "eleven_multilingual_v2"
                 
-                output_format = config.get("voice", "elevenlabs_output_format")
-                if output_format is None:
-                    output_format = "mp3_44100_128"  # Default if not found
+                output_format = config.get("voice", "elevenlabs_output_format") or "mp3_44100_128"
                 
                 voice_id = None
                 
                 # Look up the voice ID from the voices dictionary if provided
-                voices_dict = config.get("voice", "elevenlabs_voices")
-                if voices_dict is None:
-                    voices_dict = {}  # Default if not found
+                voices_dict = config.get("voice", "elevenlabs_voices") or {}
                 
                 if voice_name in voices_dict:
                     voice_id = voices_dict[voice_name]
@@ -662,4 +653,4 @@ class VoiceController:
             return False
 
 # Singleton instance
-voice_controller = VoiceController(config, control_manager) 
+voice_controller = VoiceController() 
