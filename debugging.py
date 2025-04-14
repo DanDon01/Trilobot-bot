@@ -58,6 +58,7 @@ class StateTracker:
             'movement': 'stopped',         # 'forward', 'backward', 'left', 'right', 'stopped'
             'led_mode': 'off',             # 'off', 'knight_rider', 'party', 'distance', 'custom'
             'battery_status': 'unknown',   # 'unknown', 'good', 'low', 'critical'
+            'camera_mode': 'ready',        # 'ready', 'photo_taken', 'photo_failed', 'photo_error'
             'errors': []                   # List of active errors
         }
         

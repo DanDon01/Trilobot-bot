@@ -77,7 +77,7 @@ class VoiceController:
         self.status_lock = threading.Lock()
         self.is_running = False
         
-        self.wake_words = ["hey trilobot", "hey robot", "hey tri bot", "hey try bot", "robot"]
+        self.wake_words = ["hey trilobot", "hey robot", "hey tri bot", "hey jonny 4", "robot", "commander"]
         
         # Get voice config
         self.enabled = config.get('voice', 'enabled') if config.get('voice', 'enabled') is not None else False
@@ -114,8 +114,9 @@ class VoiceController:
             log_warning("ElevenLabs API key not provided in configuration")
         else:
             try:
-                if elevenlabs:
-                    elevenlabs.set_api_key(self.elevenlabs_api_key)
+                if ELEVENLABS_AVAILABLE:
+                    # Don't use elevenlabs.set_api_key() as it's not defined
+                    # The client will be initialized later with the API key
                     self.tts_initialized = True
                     log_info("ElevenLabs TTS initialized successfully")
                 else:
@@ -130,13 +131,10 @@ class VoiceController:
         # Create media player for audio playback
         self.player = None
         try:
-            if vlc:
-                self.player = vlc.Instance('--no-video').media_player_new()
-                log_info("VLC media player initialized successfully")
-            else:
-                log_warning("VLC module not available for audio playback")
+            # We only use pygame for playback, not VLC
+            log_info("Audio playback will use pygame")
         except Exception as e:
-            log_error(f"Failed to initialize VLC media player: {e}")
+            log_error(f"Failed to initialize audio playback: {e}")
         
         self.volume = config.get("voice", "volume") / 100.0 if config.get("voice", "volume") is not None else 0.5  # Convert to 0-1 range
         self.activation_phrase = config.get("voice", "activation_phrase") or "hey trilobot"
@@ -309,63 +307,80 @@ class VoiceController:
         
         # Check for wake word
         wake_word_detected = False
+        detected_wake_word = None
+        
+        # First try exact matching
         for wake_word in self.wake_words:
             if wake_word in text:
                 wake_word_detected = True
-                # Remove wake word from text
-                command = text.replace(wake_word, "").strip()
-                log_info(f"Wake word detected, command: '{command}'")
-                
-                # Set status to listening
-                with self.status_lock:
-                    self.status = VoiceStatus.LISTENING
-                    
-                # Process command
-                if not command:
-                    self.speak("Yes?")
-                    return
-                    
-                # Check for special commands
-                if command in ["hello", "hi"]:
-                    self.speak("Hello! I'm Trilobot. How can I help you?")
-                elif "status" in command:
-                    self.speak("I'm operational and ready for your commands.")
-                elif "stop" in command or "halt" in command:
-                    self.speak("Stopping all motors.")
-                    control_manager.execute_action(ControlAction.STOP, source="voice")
-                elif "forward" in command:
-                    self.speak("Moving forward.")
-                    control_manager.execute_action(ControlAction.MOVE_FORWARD, source="voice")
-                elif "backward" in command or "back" in command:
-                    self.speak("Moving backward.")
-                    control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="voice")
-                elif "left" in command:
-                    self.speak("Turning left.")
-                    control_manager.execute_action(ControlAction.TURN_LEFT, source="voice")
-                elif "right" in command:
-                    self.speak("Turning right.")
-                    control_manager.execute_action(ControlAction.TURN_RIGHT, source="voice")
-                elif "photo" in command or "picture" in command or "snapshot" in command:
-                    self.speak("Taking a photo.")
-                    control_manager.execute_action(ControlAction.TAKE_PHOTO, source="voice")
-                elif "party" in command:
-                    self.speak("Party mode activated!")
-                    control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="voice")
-                elif "knight" in command or "rider" in command:
-                    self.speak("Knight Rider mode activated!")
-                    control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="voice")
-                elif "led" in command or "light" in command:
-                    self.speak("Toggling LEDs.")
-                    control_manager.execute_action(ControlAction.TOGGLE_LIGHT, source="voice")
-                else:
-                    self.speak(f"I heard you say {command}, but I don't know how to handle that command.")
-                
-                # Reset status
-                with self.status_lock:
-                    self.status = VoiceStatus.IDLE
+                detected_wake_word = wake_word
                 break
                 
+        # If no exact match, try fuzzy matching
         if not wake_word_detected:
+            # Check if the entire text is close to any wake word
+            if text == "commander" or text == "robot":
+                wake_word_detected = True
+                detected_wake_word = text
+                
+        if wake_word_detected:
+            # Remove wake word from text if present
+            if detected_wake_word and detected_wake_word in text:
+                command = text.replace(detected_wake_word, "").strip()
+            else:
+                command = text.strip()
+                
+            log_info(f"Wake word detected: '{detected_wake_word}', command: '{command}'")
+            
+            # Set status to listening
+            with self.status_lock:
+                self.status = VoiceStatus.LISTENING
+                
+            # Process command
+            if not command:
+                self.speak("Yes?")
+                return
+                
+            # Check for special commands
+            if command in ["hello", "hi"]:
+                self.speak("Hello! I'm Trilobot. How can I help you?")
+            elif "status" in command:
+                self.speak("I'm operational and ready for your commands.")
+            elif "stop" in command or "halt" in command:
+                self.speak("Stopping all motors.")
+                control_manager.execute_action(ControlAction.STOP, source="voice")
+            elif "forward" in command:
+                self.speak("Moving forward.")
+                control_manager.execute_action(ControlAction.MOVE_FORWARD, source="voice")
+            elif "backward" in command or "back" in command:
+                self.speak("Moving backward.")
+                control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="voice")
+            elif "left" in command:
+                self.speak("Turning left.")
+                control_manager.execute_action(ControlAction.TURN_LEFT, source="voice")
+            elif "right" in command:
+                self.speak("Turning right.")
+                control_manager.execute_action(ControlAction.TURN_RIGHT, source="voice")
+            elif "photo" in command or "picture" in command or "snapshot" in command:
+                self.speak("Taking a photo.")
+                control_manager.execute_action(ControlAction.TAKE_PHOTO, source="voice")
+            elif "party" in command:
+                self.speak("Party mode activated!")
+                control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="voice")
+            elif "knight" in command or "rider" in command:
+                self.speak("Knight Rider mode activated!")
+                control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="voice")
+            elif "led" in command or "light" in command:
+                self.speak("Toggling LEDs.")
+                control_manager.execute_action(ControlAction.TOGGLE_LIGHT, source="voice")
+            else:
+                self.speak(f"I heard you say {command}, but I don't know how to handle that command.")
+            
+            # Reset status
+            with self.status_lock:
+                self.status = VoiceStatus.IDLE
+        else:
+            # No wake word detected
             log_debug("No wake word detected in speech")
 
     def speak(self, text, cache_key=None):
@@ -570,9 +585,10 @@ class VoiceController:
 
     def _fuzzy_match(self, target, text):
         """Simple fuzzy matching for wake word detection"""
-        return target in text or any(
-            part in text for part in target.split() if len(part) > 3
-        )
+        text = text.lower()
+        return (target in text or 
+                text in target or 
+                any(part in text for part in target.split() if len(part) > 2))
 
     def _process_command(self, command):
         """Process recognized command text"""
