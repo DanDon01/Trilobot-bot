@@ -16,6 +16,7 @@ import tempfile
 import hashlib
 import shutil
 import stat
+from enum import Enum
 
 # Import local modules
 from debugging import log_info, log_error, log_warning, log_debug, state_tracker
@@ -27,6 +28,15 @@ from control_manager import control_manager, ControlAction
 import sys
 
 logger = logging.getLogger('trilobot.voice')
+
+# Define voice status states
+class VoiceStatus(Enum):
+    """Status states for the voice recognition system"""
+    IDLE = 0
+    LISTENING = 1
+    PROCESSING = 2
+    SPEAKING = 3
+    ERROR = 4
 
 # Check if voice modules are available
 SPEECH_RECOGNITION_AVAILABLE = False
