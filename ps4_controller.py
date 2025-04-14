@@ -520,15 +520,13 @@ class PS4Controller:
                         event_count += 1
                         if event.type == ecodes.EV_KEY:
                             log_info(f"PS4Controller: Button event: code={event.code}, value={event.value}")
-                        elif event.type == ecodes.EV_ABS:
-                            # log_debug(f"PS4Controller: Axis event: code={event.code}, value={event.value}") # Commented out - too noisy
-                            pass
-                        elif event.type == ecodes.EV_SYN:
-                            # log_debug(f"PS4Controller: Sync event received") # Commented out - too noisy
-                            pass
-                        else:
-                            # log_debug(f"PS4Controller: Other event type: {event.type}") # Commented out - too noisy
-                            pass
+                        # Comment out excessive event logging
+                        # elif event.type == ecodes.EV_ABS:
+                        #     log_debug(f"PS4Controller: Axis event: code={event.code}, value={event.value}")
+                        # elif event.type == ecodes.EV_SYN:
+                        #     log_debug(f"PS4Controller: Sync event received")
+                        # else:
+                        #     log_debug(f"PS4Controller: Other event type: {event.type}")
                         
                         self._handle_event(event)
                     else:
@@ -544,7 +542,8 @@ class PS4Controller:
                 # Periodically log event count
                 current_time = time.time()
                 if current_time - last_log_time >= 5.0:  # Log every 5 seconds
-                    log_info(f"PS4Controller: Processed {event_count} events in the last 5 seconds")
+                    # Downgrade this to debug level since it's frequent and not critical
+                    # log_debug(f"PS4Controller: Processed {event_count} events in the last 5 seconds")
                     event_count = 0
                     last_log_time = current_time
                 
@@ -564,27 +563,27 @@ class PS4Controller:
                     log_error(f"PS4Controller: Error closing device: {e}")
     
     def _handle_event(self, event):
-        """Handle a single event from the PS4 controller"""
-        # log_debug(f"PS4Controller: Handling event: type={event.type}, code={event.code}, value={event.value}") # Commented out - too noisy
-        
-        if event.type == ecodes.EV_KEY:
-            self._process_button_event(event)
-        elif event.type == ecodes.EV_ABS:
-            self._process_axis_event(event)
-        elif event.type == ecodes.EV_SYN:
-            # log_debug(f"PS4Controller: Sync event received") # Commented out - too noisy
+        """Handle an input event from the PS4 controller."""
+        if event.type == ecodes.EV_SYN:
+            # Synchronization event - marks the end of a set of events that should be processed together
+            # log_debug(f"SYNC EVENT: {event.code}, {event.value}") 
             # Process movement on sync events if axes have changed
             if self.axes_changed_since_last_sync:
-                # log_debug("PS4Controller: Processing movement after sync event") # Commented out - too noisy
                 self._process_movement()
                 self.axes_changed_since_last_sync = False
-        else:
-            # log_debug(f"PS4Controller: Other event type: {event.type}") # Commented out - too noisy
-            pass
+        elif event.type == ecodes.EV_KEY:
+            # Button Press Event
+            self._process_button_event(event)
+        elif event.type == ecodes.EV_ABS:
+            # Joystick and Trigger Event
+            # log_debug(f"AXIS EVENT: code={event.code}, value={event.value}") 
+            self._process_axis_event(event)
+        # else:
+            # log_debug(f"Unhandled event type: {event.type}") 
 
     def _process_button_event(self, event):
         """Process button press/release events (evdev)"""
-        # log_debug(f"--- ENTERED _process_button_event --- Code: {event.code}") # Commented out - too noisy
+        # log_debug(f"--- ENTERED _process_button_event --- Code: {event.code}") 
         
         # Ensure we're in PS4 control mode when buttons are used
         if control_manager.current_mode != ControlMode.PS4:
@@ -596,8 +595,11 @@ class PS4Controller:
         if button_name:
             is_pressed = (event.value == 1) # 1 for press, 0 for release, 2 for repeat (treat repeat as press)
             self.buttons[button_name] = is_pressed
-            # log_debug(f"EVDEV Button event: {button_name} {'pressed' if is_pressed else 'released'} (val: {event.value})") # Commented out - too noisy
-            log_info(f"PS4 BUTTON: Code={event.code}, Name={button_name} {'PRESSED' if is_pressed else 'RELEASED'}")  # MORE VISIBLE LOG
+            # Only log button presses at INFO level, not releases (too noisy)
+            if is_pressed:
+                log_info(f"PS4 BUTTON: {button_name} PRESSED")
+            else:
+                log_debug(f"PS4 BUTTON: {button_name} released")
 
             # Normalize alt button names to standard names
             standard_name = button_name
@@ -754,7 +756,7 @@ class PS4Controller:
 
     def _process_axis_event(self, event):
         """Process joystick and trigger axis events (evdev)"""
-        # log_debug(f"--- ENTERED _process_axis_event --- Code: {event.code}") # Commented out - too noisy
+        # log_debug(f"--- ENTERED _process_axis_event --- Code: {event.code}") 
         
         # Check if axis code exists in our map
         axis_name = self.axis_map.get(event.code)
@@ -784,13 +786,13 @@ class PS4Controller:
             significant_change = delta > 0.01 # Only report changes above this threshold
             
             # Log raw value for debugging
-            # log_debug(f"Current val: {old_value:.4f}, Delta: {delta:.4f}, Changed: {significant_change}") # Commented out - too noisy
+            # log_debug(f"Current val: {old_value:.4f}, Delta: {delta:.4f}, Changed: {significant_change}") 
             
             # Update stored value if changed significantly
             if significant_change:
                 # Round to 4 decimal places to avoid micro-fluctuations
                 self.axes[axis_name] = round(normalized_value, 4)
-                # log_debug(f"Axis {axis_name} value updated to {self.axes[axis_name]}") # Commented out - too noisy
+                # log_debug(f"Axis {axis_name} value updated to {self.axes[axis_name]}") 
                 
                 # Log at higher level for visibility during testing
                 # Only log major stick movements that are actually causing robot movement
@@ -809,7 +811,7 @@ class PS4Controller:
         current_state = self.buttons.get(button_name, False)
         if current_state != is_pressed:
             self.buttons[button_name] = is_pressed
-            # log_debug(f"Simulated button event: {button_name} {'pressed' if is_pressed else 'released'}") # Commented out - too noisy
+            # log_debug(f"Simulated button event: {button_name} {'pressed' if is_pressed else 'released'}") 
             
             # Process the simulated button only on press
             if is_pressed:
@@ -826,7 +828,7 @@ class PS4Controller:
 
     def _process_movement(self):
         """Process stick and trigger values into movement commands"""
-        # log_debug("Entered _process_movement") # Commented out - too noisy
+        # log_debug("Entered _process_movement") 
         # Safety check - ensure this isn't called when controller should be inactive
         if not self.running or self.stop_input.is_set():
             log_warning("_process_movement called when controller inactive.")
@@ -869,16 +871,16 @@ class PS4Controller:
         final_left_speed = max(-self.max_speed, min(self.max_speed, final_left_speed))
         final_right_speed = max(-self.max_speed, min(self.max_speed, final_right_speed))
         
-        # log_debug(f"Final wheel speeds: L={final_left_speed:.4f}, R={final_right_speed:.4f}") # Commented out - too noisy
+        # log_debug(f"Final wheel speeds: L={final_left_speed:.4f}, R={final_right_speed:.4f}") 
 
         # Set motor speeds through control manager
         if control_manager.current_mode == ControlMode.PS4:
             # Only log and move if there's actual movement
             if abs(final_left_speed) > 0.01 or abs(final_right_speed) > 0.01:
                 log_info(f"PS4 MOVEMENT: L={final_left_speed:.2f}, R={final_right_speed:.2f}")
-            else:
-                # log_debug("PS4 sticks centered (no movement)") # Commented out - too noisy
-                pass
+            # else:
+                # log_debug("PS4 sticks centered (no movement)") 
+                # pass
             
             # Always call set_motor_speeds - it handles the stopped case too
             control_manager.set_motor_speeds(final_left_speed, final_right_speed)

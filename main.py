@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Main Module for Trilobot
 
@@ -11,6 +12,40 @@ import sys
 import os
 import threading
 import logging
+import socket
+import platform
+from pathlib import Path
+
+# Suppress ALSA, JACK and other system messages in terminal
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
+os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
+os.environ['SDL_AUDIODRIVER'] = 'alsa'  # Use ALSA for SDL audio to avoid pulseaudio errors
+
+# Additional suppressions for audio library messages
+os.environ['JACK_NO_AUDIO_RESERVATION'] = '1'  # Suppress JACK audio reservation messages
+os.environ['JACK_NO_START_SERVER'] = '1'  # Don't start JACK server automatically
+os.environ['AUDIODEV'] = 'null'  # Redirect audio to null device when not explicitly needed
+
+# Filter Python warnings
+import warnings
+warnings.filterwarnings('ignore')
+
+# Redirect stderr temporarily to suppress module loading messages
+try:
+    devnull = open(os.devnull, 'w')
+    old_stderr = sys.stderr
+    sys.stderr = devnull
+    
+    # Import potentially noisy modules here to suppress their startup messages
+    import pygame.mixer  # Suppress pygame audio initialization messages
+    try:
+        import alsaaudio  # Suppress ALSA audio initialization if used
+    except ImportError:
+        pass
+except Exception:
+    # If this fails, continue without redirection
+    devnull = None
+    old_stderr = None
 
 # Import local modules
 from debugging import log_info, log_error, log_warning, state_tracker
@@ -20,6 +55,12 @@ from web_control import app as flask_app
 from camera_processor import camera_processor
 from voice_controller import voice_controller
 from ps4_controller import ps4_controller
+
+# Restore stderr
+if old_stderr:
+    sys.stderr = old_stderr
+if devnull:
+    devnull.close()
 
 logger = logging.getLogger('trilobot.main')
 
@@ -164,6 +205,19 @@ def main():
 def cleanup():
     """Clean up and shut down all services"""
     log_info("Performing cleanup...")
+    
+    # Restore stderr if it was redirected
+    global old_stderr, devnull
+    if 'old_stderr' in globals() and old_stderr is not None:
+        sys.stderr = old_stderr
+        log_debug("stderr restored")
+    
+    if 'devnull' in globals() and devnull is not None:
+        try:
+            devnull.close()
+            log_debug("devnull file closed")
+        except:
+            pass
     
     # Stop voice controller
     try:

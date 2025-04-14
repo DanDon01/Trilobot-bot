@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 
 # Configure logging
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DIRECTORY = 'logs'
 
@@ -27,10 +27,15 @@ logging.basicConfig(
     level=LOG_LEVEL,
     format=LOG_FORMAT,
     handlers=[
-        logging.FileHandler(LOG_FILENAME),
-        logging.StreamHandler()  # Also output to console
+        logging.StreamHandler()  # Console handler - only shows INFO and above
     ]
 )
+
+# Add file handler that captures all logs including DEBUG
+file_handler = logging.FileHandler(LOG_FILENAME)
+file_handler.setLevel(logging.DEBUG)  # Capture all levels in the file
+file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+logging.getLogger().addHandler(file_handler)
 
 # Create module logger
 logger = logging.getLogger('trilobot')

@@ -18,6 +18,22 @@ import shutil
 import stat
 from enum import Enum
 
+# Redirect ALSA errors to /dev/null to suppress them in the terminal
+# Must be done before audio libraries are initialized
+os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
+
+# Suppress ALSA and JACK error messages in terminal
+try:
+    # Redirect stderr temporarily when initializing audio
+    devnull = open(os.devnull, 'w')
+    old_stderr = os.dup(2)  # Save the original stderr file descriptor
+    os.dup2(devnull.fileno(), 2)  # Redirect stderr to /dev/null
+except Exception:
+    # If this fails, just continue without redirection
+    devnull = None
+    old_stderr = None
+
 # Import local modules
 from debugging import log_info, log_error, log_warning, log_debug, state_tracker
 from config import config
@@ -171,9 +187,26 @@ class VoiceController:
         # Initialize pygame for audio playback
         self.audio_available = False
         try:
-            pygame.mixer.init()
+            # Initialize pygame mixer with conservative settings to reduce errors
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
             self.audio_available = True
+            
+            # Restore stderr after audio initialization
+            if old_stderr is not None:
+                os.dup2(old_stderr, 2)  # Restore original stderr
+                os.close(old_stderr)
+            if devnull is not None:
+                devnull.close()
+                
+            log_info("Audio playback initialized")
         except pygame.error as e:
+            # Restore stderr in case of error too
+            if old_stderr is not None:
+                os.dup2(old_stderr, 2)
+                os.close(old_stderr)
+            if devnull is not None:
+                devnull.close()
+                
             log_warning(f"Failed to initialize audio: {e}")
             log_warning("Voice synthesis (speech output) will be disabled")
         

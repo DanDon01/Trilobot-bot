@@ -163,8 +163,7 @@
     <div class="container">
         <!-- Camera Feed -->
         <div class="camera-feed">
-            <img id="camera-stream" src="{{ stream_url }}" alt="Camera Feed" 
-                 onerror="handleStreamError();">
+            <img id="camera-stream" src="{{ stream_url }}" alt="Camera Feed">
         </div>
         
         <!-- Enhanced Status Panel - Moved up after camera feed -->
@@ -444,6 +443,14 @@
                 img.src = "{{ stream_url }}?t=" + new Date().getTime(); // Cache buster
             }, 10000); // Try to reconnect every 10 seconds
         }
+
+        // Set up stream error handling
+        document.addEventListener('DOMContentLoaded', function() {
+            const streamImg = document.getElementById('camera-stream');
+            if (streamImg) {
+                streamImg.onerror = handleStreamError;
+            }
+        });
 
         // Initial status
         document.getElementById('status-text').textContent = 'Ready';
