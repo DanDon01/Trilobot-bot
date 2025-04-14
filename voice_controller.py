@@ -652,4 +652,4 @@ class VoiceController:
             return False
 
 # Singleton instance
-voice_controller = VoiceController() 
+voice_controller = VoiceController(config, control_manager) 

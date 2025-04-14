@@ -24,7 +24,17 @@ logger = logging.getLogger('trilobot.web')
 
 # Try to import hardware-specific modules
 try:
-    from trilobot import Trilobot, NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
+    from trilobot import Trilobot
+    # Try to get constants separately to avoid issues if some are missing
+    try:
+        from trilobot import NUM_BUTTONS, LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT, LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT, LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT
+    except ImportError:
+        # Define fallback constants if not available
+        NUM_BUTTONS = 6
+        LIGHT_FRONT_LEFT, LIGHT_FRONT_RIGHT = 0, 1
+        LIGHT_MIDDLE_LEFT, LIGHT_MIDDLE_RIGHT = 2, 3
+        LIGHT_REAR_LEFT, LIGHT_REAR_RIGHT = 4, 5
+        log_warning("Trilobot constants not available, using fallback values.")
     hardware_available = True
 except ImportError:
     # Mock for development without hardware
