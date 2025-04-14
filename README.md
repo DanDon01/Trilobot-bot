@@ -94,6 +94,78 @@ Say "Hey Trilobot" followed by:
 - "Take photo"
 - "Status report"
 
+## Voice Control System
+
+The Trilobot includes a sophisticated voice control system that allows for hands-free operation:
+
+### Core Components
+
+1. **Speech Recognition**: Uses Google's speech recognition service through the `SpeechRecognition` Python library to convert your voice to text.
+
+2. **Text-to-Speech**: Uses ElevenLabs' high-quality voice synthesis API to generate natural-sounding responses.
+
+3. **Command Processing**: Analyzes recognized text to execute robot actions or provide information.
+
+### How It Works
+
+1. **Activation**: The system listens continuously for the phrase "hey trilobot" (your wake word).
+
+2. **Command Mode**: After hearing the wake word, the robot responds with "Yes?" and enters active listening mode for 10 seconds.
+
+3. **Command Execution**: Commands are mapped to robot actions like movement, LED effects, or photo capture.
+
+4. **Response**: The robot provides audio feedback for commands and can answer special queries.
+
+### Available Commands
+
+#### Movement Commands:
+- "move forward" / "go forward" / "forward"
+- "move backward" / "go backward" / "back up" / "reverse"
+- "turn left" / "go left" / "left"
+- "turn right" / "go right" / "right"
+- "stop" / "halt" / "freeze"
+- "emergency stop" / "emergency halt"
+
+#### LED Commands:
+- "knight rider" (activates the Knight Rider LED effect)
+- "party mode" (activates the party mode LED effect)
+
+#### Camera Commands:
+- "take photo" / "take picture" / "capture image"
+
+#### Information Commands:
+- "hello" / "hi" / "hey" (gets a greeting response)
+- "status" / "status report" (reports on robot's current status)
+- "who are you" / "what are you" (tells you about the Trilobot)
+- "help" (lists available commands)
+
+### Technical Details
+
+- Voice responses are cached in `/tmp/trilobot_responses` to reduce API usage
+- Uses the Josh voice from ElevenLabs by default
+- Automatically finds and uses available microphones
+- Has a 5-second timeout for listening to commands
+- After wake word activation, has a 10-second window to receive commands
+
+### Setting Up Voice Control
+
+1. Install required packages:
+   ```bash
+   pip install SpeechRecognition elevenlabs pygame pyaudio
+   ```
+
+2. Set your ElevenLabs API key in `config.json`:
+   ```json
+   "voice": {
+       "enabled": true,
+       "elevenlabs_api_key": "YOUR_API_KEY_HERE"
+   }
+   ```
+
+3. Make sure a microphone and speaker are connected to your Raspberry Pi
+
+4. Restart the application and say "hey trilobot" followed by a command
+
 ## Project Structure
 
 - `main.py` - Main application entry point

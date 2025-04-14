@@ -22,6 +22,10 @@ from debugging import log_info, log_error, log_warning, log_debug, state_tracker
 from config import config
 from control_manager import control_manager, ControlAction
 
+# We need to import this way to avoid circular imports
+# The web_control module is imported only where needed
+import sys
+
 logger = logging.getLogger('trilobot.voice')
 
 # Check if voice modules are available
@@ -59,8 +63,11 @@ class VoiceController:
     def __init__(self):
         self.enabled = config.get("voice", "enabled")
         
-        # Use a cache directory in /tmp which should be writable by everyone
-        self.cache_dir = "/tmp/trilobot_responses"
+        # Create an absolute path for the cache directory that's definitely writable
+        # Use home directory for more reliable permissions
+        home_dir = os.path.expanduser("~")
+        self.cache_dir = os.path.join(home_dir, "trilobot_responses")
+        
         self.volume = config.get("voice", "volume") / 100.0  # Convert to 0-1 range
         self.activation_phrase = config.get("voice", "activation_phrase").lower()
         
@@ -71,13 +78,26 @@ class VoiceController:
                 os.makedirs(self.cache_dir, exist_ok=True)
                 # Make the directory accessible to all users
                 try:
-                    import stat
-                    os.chmod(self.cache_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)  # 0777 permissions
-                    log_info(f"Set full permissions on cache directory: {self.cache_dir}")
+                    # Make sure absolute path exists and is writable
+                    os.chmod(self.cache_dir, 0o777)  # Full permissions
+                    # Try to write a test file to verify permissions
+                    test_file = os.path.join(self.cache_dir, "test_write.txt")
+                    with open(test_file, 'w') as f:
+                        f.write("Test write successful")
+                    os.remove(test_file)  # Clean up test file
+                    log_info(f"Successfully verified write permissions for cache directory: {self.cache_dir}")
                 except Exception as perm_e:
                     log_warning(f"Could not set permissions on cache directory: {perm_e}")
             except Exception as e:
                 log_error(f"Failed to create cache directory: {e}")
+                # Fall back to tmp directory if home directory fails
+                self.cache_dir = "/tmp/trilobot_responses"
+                try:
+                    os.makedirs(self.cache_dir, exist_ok=True)
+                    os.chmod(self.cache_dir, 0o777)
+                    log_info(f"Created fallback cache directory: {self.cache_dir}")
+                except Exception as tmp_e:
+                    log_error(f"Failed to create even tmp directory: {tmp_e}")
             
         # Initialize pygame for audio playback
         self.audio_available = False
@@ -221,6 +241,13 @@ class VoiceController:
             log_debug(f"Voice output disabled, not speaking: {text}")
             return
             
+        # Record the speech activity for web UI
+        try:
+            from web_control import record_voice_activity
+            record_voice_activity(f"Speaking: \"{text}\"")
+        except:
+            pass
+            
         # Use provided cache key or the text itself for caching
         if cache_key is None:
             cache_key = text
@@ -355,6 +382,15 @@ class VoiceController:
             return
             
         log_info("Voice recognition loop started")
+        try:
+            # Import here to avoid circular imports
+            from web_control import record_voice_activity
+            record_voice_activity("Voice system active, listening for wake word")
+        except ImportError:
+            log_warning("Could not import web_control.record_voice_activity - web UI won't show voice status")
+        except Exception as e:
+            log_warning(f"Error recording voice activity: {e}")
+            
         active_listening = False # Flag to track if activation phrase was heard
         last_active_time = 0
         timeout_duration = config.get("voice", "timeout_duration") or 10 # Removed fallback
@@ -371,6 +407,11 @@ class VoiceController:
                     if active_listening and (time.time() - last_active_time > timeout_duration):
                          log_info("Command listening timed out.")
                          active_listening = False
+                         try:
+                             from web_control import record_voice_activity
+                             record_voice_activity("Listening for wake word")
+                         except:
+                             pass
                     continue
                 except Exception as listen_e:
                      log_error(f"Error during audio listening: {listen_e}")
@@ -381,6 +422,11 @@ class VoiceController:
                 # Recognize speech using Google Web Speech API
                 text = self.recognizer.recognize_google(audio).lower()
                 log_info(f"Voice received: '{text}'")
+                try:
+                    from web_control import record_voice_activity
+                    record_voice_activity(f"Heard: \"{text}\"")
+                except:
+                    pass
 
                 # Check for activation phrase if not already listening
                 if not active_listening:
@@ -389,7 +435,12 @@ class VoiceController:
                         active_listening = True
                         last_active_time = time.time()
                         # Optional: Provide audio feedback
-                        self.speak("Yes?", "activation_confirm") 
+                        self.speak("Yes?", "activation_confirm")
+                        try:
+                            from web_control import record_voice_activity
+                            record_voice_activity("Wake word detected! Listening for command...")
+                        except:
+                            pass
                         # Process command immediately if activation phrase was the only thing said
                         command_part = text.replace(self.activation_phrase, "").strip()
                         if command_part:
@@ -402,7 +453,12 @@ class VoiceController:
                     # Already actively listening, process the command
                     self._process_command(text)
                     # Reset active listening after processing a command
-                    active_listening = False 
+                    active_listening = False
+                    try:
+                        from web_control import record_voice_activity
+                        record_voice_activity("Command processed, listening for wake word")
+                    except:
+                        pass
                     
             except sr.UnknownValueError:
                 log_warning("Could not understand audio")
@@ -410,11 +466,21 @@ class VoiceController:
                      # Maybe provide feedback if we were expecting a command
                      # self.speak("Sorry, I didn't catch that.", "unknown_value")
                      # Consider resetting active_listening here too, or keep listening briefly?
+                     try:
+                         from web_control import record_voice_activity
+                         record_voice_activity("Could not understand audio")
+                     except:
+                         pass
                      pass 
             except sr.RequestError as e:
                 log_error(f"Could not request results from Google Speech Recognition service; {e}")
                 # Might indicate network issues
                 active_listening = False # Reset on network error
+                try:
+                    from web_control import record_voice_activity
+                    record_voice_activity(f"Speech recognition error: {e}")
+                except:
+                    pass
             except Exception as recog_e:
                  log_error(f"Error during voice recognition processing: {recog_e}", exc_info=True)
                  active_listening = False # Reset on unexpected errors

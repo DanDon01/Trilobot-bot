@@ -38,7 +38,7 @@
         "enabled": true,
         "cache_dir": "responses",
         "volume": 80,
-        "activation_phrase": "hey trilobot",
+        "activation_phrase": "robot",
         "timeout_duration": 10,
         "elevenlabs_api_key": "",
         "elevenlabs_voice_id": "Josh",

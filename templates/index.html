@@ -90,59 +90,63 @@
         .cross { background-color: #3498db; }
         .square { background-color: #9b59b6; }
         
-        .status {
-            margin-top: 20px;
-            padding: 10px;
+        /* Enhanced status display */
+        .status-panel {
+            width: 100%;
+            max-width: 640px;
+            margin: 0 0 20px 0;
+            padding: 15px;
             background-color: #fff;
-            border-radius: 5px;
-            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
         
-        .ps4-buttons {
+        .status-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 10px;
-            max-width: 300px;
-            margin: 20px auto;
-            padding: 10px;
         }
         
-        .ps4-btn {
-            padding: 20px;
-            border: none;
-            border-radius: 5px;
-            color: white;
+        .status-item {
+            display: flex;
+            align-items: center;
+            padding: 5px;
+        }
+        
+        .status-label {
             font-weight: bold;
-            cursor: pointer;
-            transition: opacity 0.2s;
+            margin-right: 8px;
         }
         
-        .ps4-btn:active {
-            opacity: 0.7;
+        .status-value {
+            flex-grow: 1;
         }
         
-        .triangle { background-color: #2ecc71; }
-        .circle { background-color: #e74c3c; }
-        .cross { background-color: #3498db; }
-        .square { background-color: #9b59b6; }
-        
-        .direction-btn {
-            padding: 20px;
-            border: none;
-            border-radius: 5px;
-            background-color: #007bff;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            transition: opacity 0.2s;
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
         }
         
-        .direction-btn:active {
-            opacity: 0.7;
+        .status-online {
+            background-color: #2ecc71;
         }
         
-        #stop {
-            background-color: #dc3545;
+        .status-offline {
+            background-color: #e74c3c;
+        }
+        
+        .status-unknown {
+            background-color: #f39c12;
+        }
+        
+        .voice-activity {
+            margin-top: 10px;
+            padding: 8px;
+            border-top: 1px solid #eee;
+            min-height: 2em;
         }
     </style>
 </head>
@@ -152,6 +156,32 @@
         <div class="camera-feed">
             <img id="camera-stream" src="{{ stream_url }}" alt="Camera Feed" 
                  onerror="handleStreamError();">
+        </div>
+        
+        <!-- Enhanced Status Panel - Moved up after camera feed -->
+        <div class="status-panel">
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">Camera:</span>
+                    <span class="status-indicator" id="camera-status"></span>
+                    <span class="status-value" id="camera-status-text">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Voice System:</span>
+                    <span class="status-indicator" id="voice-status"></span>
+                    <span class="status-value" id="voice-status-text">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">PS4 Controller:</span>
+                    <span class="status-indicator" id="controller-status"></span>
+                    <span class="status-value" id="controller-status-text">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Robot Status:</span>
+                    <span class="status-value" id="robot-status-text">Ready</span>
+                </div>
+            </div>
+            <div class="voice-activity" id="voice-activity">Voice system initialized</div>
         </div>
         
         <div class="control-section">
@@ -176,14 +206,89 @@
                 <button class="ps4-btn square" data-button="square" data-action="toggle_party_mode">Square</button>
             </div>
         </div>
-        
-        <div id="status" style="text-align: center; margin: 10px 0;">
-            Status: <span id="status-text">Ready</span>
-        </div>
     </div>
 
     <script>
         let isMoving = {}; // Track movement state per direction
+        
+        // === Status Management ===
+        function updateStatus(type, status, message) {
+            const statusElem = document.getElementById(`${type}-status`);
+            const textElem = document.getElementById(`${type}-status-text`);
+            
+            if (statusElem) {
+                statusElem.className = 'status-indicator status-' + status;
+            }
+            
+            if (textElem) {
+                textElem.textContent = message;
+            }
+        }
+        
+        function updateVoiceActivity(message, isSystem = false) {
+            const activityElem = document.getElementById('voice-activity');
+            if (activityElem) {
+                if (isSystem) {
+                    activityElem.innerHTML = `<strong>System:</strong> ${message}`;
+                } else {
+                    activityElem.textContent = message;
+                }
+            }
+        }
+        
+        // Initialize status indicators
+        updateStatus('camera', 'unknown', 'Checking...');
+        updateStatus('voice', 'unknown', 'Checking...');
+        updateStatus('controller', 'unknown', 'Checking...');
+        
+        // Poll for system status every 5 seconds
+        function pollSystemStatus() {
+            fetch('/system_status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatus('camera', data.camera.available ? 'online' : 'offline', 
+                               data.camera.available ? 'Online' : 'Offline: ' + data.camera.error);
+                    
+                    updateStatus('voice', data.voice.enabled ? 'online' : 'offline',
+                               data.voice.enabled ? 'Online' : 'Disabled');
+                    
+                    updateStatus('controller', data.controller.connected ? 'online' : 'offline',
+                               data.controller.connected ? 'Connected' : 'Not connected');
+                    
+                    document.getElementById('robot-status-text').textContent = data.movement_state || 'Ready';
+                })
+                .catch(error => {
+                    console.error('Status poll error:', error);
+                });
+        }
+        
+        // Poll for voice activity
+        let voiceActivityTimeout;
+        function pollVoiceActivity() {
+            fetch('/voice_activity')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.activity) {
+                        clearTimeout(voiceActivityTimeout);
+                        updateVoiceActivity(data.activity);
+                        
+                        // Clear after 10 seconds if no new activity
+                        voiceActivityTimeout = setTimeout(() => {
+                            updateVoiceActivity('Listening...');
+                        }, 10000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Voice activity poll error:', error);
+                });
+        }
+        
+        // Start polling
+        pollSystemStatus();
+        setInterval(pollSystemStatus, 5000);
+        
+        // Poll voice activity more frequently
+        setInterval(pollVoiceActivity, 1000);
         
         // === Movement Control ===
         const moveButtons = {

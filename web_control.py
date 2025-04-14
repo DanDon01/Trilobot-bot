@@ -18,6 +18,7 @@ from debugging import log_info, log_error, log_warning, state_tracker, log_debug
 from config import config
 from control_manager import control_manager, ControlMode, ControlAction
 from camera_processor import camera_processor
+from voice_controller import voice_controller
 
 logger = logging.getLogger('trilobot.web')
 
@@ -53,6 +54,10 @@ button_states = {
 # Light show thread
 light_show_thread = None
 stop_light_shows = threading.Event()
+
+# Global variables for voice activity tracking
+last_voice_activity = ""
+voice_activity_timestamp = 0
 
 @app.route('/')
 def index():
@@ -439,6 +444,73 @@ def camera_status():
             'status': 'error',
             'message': str(e)
         })
+
+@app.route('/system_status')
+def system_status():
+    """Return system status as JSON for the web UI"""
+    try:
+        # Import here to avoid circular imports
+        from ps4_controller import ps4_controller
+
+        # Get camera status
+        camera_status = camera_processor.get_camera_status()
+        
+        # Get voice status
+        voice_status = {
+            "enabled": voice_controller.enabled,
+            "microphone": voice_controller.microphone is not None,
+            "recognizer": voice_controller.recognizer is not None,
+            "audio": voice_controller.audio_available,
+            "running": voice_controller.recognition_thread is not None and voice_controller.recognition_thread.is_alive(),
+        }
+        
+        # Get controller status
+        controller_status = {
+            "connected": hasattr(ps4_controller, 'device') and ps4_controller.device is not None,
+            "running": ps4_controller.running,
+        }
+        
+        # Get robot status from state tracker
+        robot_status = {
+            "control_mode": state_tracker.get_state("control_mode"),
+            "movement_state": state_tracker.get_state("movement"),
+            "led_mode": state_tracker.get_state("led_mode"),
+        }
+        
+        return jsonify({
+            "camera": camera_status,
+            "voice": voice_status,
+            "controller": controller_status,
+            "movement_state": robot_status["movement_state"],
+            "control_mode": robot_status["control_mode"],
+            "led_mode": robot_status["led_mode"],
+        })
+    except Exception as e:
+        log_error(f"Error getting system status: {e}")
+        return jsonify({"error": str(e)})
+
+@app.route('/voice_activity')
+def voice_activity():
+    """Return the latest voice activity as JSON for the web UI"""
+    global last_voice_activity, voice_activity_timestamp
+    
+    # Only return activity if it's recent (last 30 seconds)
+    current_time = time.time()
+    if current_time - voice_activity_timestamp > 30:
+        last_voice_activity = "" 
+    
+    return jsonify({
+        "activity": last_voice_activity,
+        "timestamp": voice_activity_timestamp
+    })
+
+# Function to record voice activity
+def record_voice_activity(activity):
+    """Record voice activity for the web UI to display"""
+    global last_voice_activity, voice_activity_timestamp
+    last_voice_activity = activity
+    voice_activity_timestamp = time.time()
+    log_debug(f"Voice activity recorded: {activity}")
 
 def main():
     """Main function to start the web control server"""
