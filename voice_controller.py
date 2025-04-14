@@ -58,15 +58,77 @@ except Exception as e_gen:
     # self.eleven_client will remain None, which prevents usage
 
 class VoiceController:
-    """Controller for voice recognition and synthesis"""
+    """Controls voice recognition and TTS for the Trilobot"""
     
-    def __init__(self):
-        self.enabled = config.get("voice", "enabled")
+    def __init__(self, config, control_manager):
+        """Initialize the voice controller with the given configuration"""
+        self.config = config
+        self.control_manager = control_manager
+        self.stop_event = threading.Event()
+        self.status = VoiceStatus.IDLE
+        self.status_lock = threading.Lock()
+        self.is_running = False
         
-        # Create an absolute path for the cache directory that's definitely writable
-        # Use home directory for more reliable permissions
-        home_dir = os.path.expanduser("~")
-        self.cache_dir = os.path.join(home_dir, "trilobot_responses")
+        self.wake_words = ["hey trilobot", "hey robot", "hey tri bot", "hey try bot", "robot"]
+        
+        # Get voice config
+        self.enabled = self.config.get('voice', {}).get('enabled', False)
+        if not self.enabled:
+            log_info("Voice control is disabled in configuration")
+            return
+            
+        # Initialize speech recognition
+        if sr:
+            try:
+                self.recognizer = sr.Recognizer()
+                # Set optimal parameters for Trilobot environment
+                self.recognizer.energy_threshold = 3000  # Higher value means less sensitive
+                self.recognizer.dynamic_energy_threshold = True
+                self.recognizer.dynamic_energy_adjustment_damping = 0.15
+                self.recognizer.dynamic_energy_ratio = 1.5
+                self.recognizer.pause_threshold = 0.8  # Seconds of silence before considering the phrase complete
+                self.recognizer.operation_timeout = 3  # Seconds
+                
+                log_info("Speech recognition initialized successfully")
+            except Exception as e:
+                log_error(f"Failed to initialize speech recognition: {e}")
+                self.recognizer = None
+        else:
+            log_warning("SpeechRecognition library not available")
+            self.recognizer = None
+            
+        # Initialize ElevenLabs TTS if available
+        self.elevenlabs_api_key = self.config.get('voice', {}).get('elevenlabs_api_key', '')
+        self.elevenlabs_voice_id = self.config.get('voice', {}).get('elevenlabs_voice_id', 'premade/adam')
+        self.tts_initialized = False
+        
+        if not self.elevenlabs_api_key:
+            log_warning("ElevenLabs API key not provided in configuration")
+        else:
+            try:
+                if elevenlabs:
+                    elevenlabs.set_api_key(self.elevenlabs_api_key)
+                    self.tts_initialized = True
+                    log_info("ElevenLabs TTS initialized successfully")
+                else:
+                    log_warning("ElevenLabs module not available")
+            except Exception as e:
+                log_error(f"Failed to initialize ElevenLabs TTS: {e}")
+                
+        # Initialize cache directory for audio files
+        self.cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'cache', 'voice')
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Create media player for audio playback
+        self.player = None
+        try:
+            if vlc:
+                self.player = vlc.Instance('--no-video').media_player_new()
+                log_info("VLC media player initialized successfully")
+            else:
+                log_warning("VLC module not available for audio playback")
+        except Exception as e:
+            log_error(f"Failed to initialize VLC media player: {e}")
         
         self.volume = config.get("voice", "volume") / 100.0  # Convert to 0-1 range
         self.activation_phrase = config.get("voice", "activation_phrase").lower()
@@ -109,10 +171,8 @@ class VoiceController:
             log_warning("Voice synthesis (speech output) will be disabled")
         
         # Speech recognition components
-        self.recognizer = None if not SPEECH_RECOGNITION_AVAILABLE else sr.Recognizer()
         self.microphone = None
         self.recognition_thread = None
-        self.stop_recognition = threading.Event()
         
         # Voice command mapping
         self.command_map = {
@@ -182,59 +242,123 @@ class VoiceController:
         log_info("Voice Controller initialized")
         
     def start(self):
-        """Start voice recognition"""
-        if not self.enabled:
-            log_warning("Voice control is disabled in configuration")
-            return False
+        """Start the voice controller"""
+        if not self.enabled or self.is_running:
+            return
             
-        if not SPEECH_RECOGNITION_AVAILABLE:
-            log_error("Cannot start voice recognition: Speech recognition module not available")
-            return False
+        if not sr or not self.recognizer:
+            log_warning("Voice recognition not available")
+            return
+            
+        log_info("Starting voice controller...")
         
+        # Initialize microphone if not already done
         try:
-            # Find working microphone
-            for mic_index, mic_name in enumerate(sr.Microphone.list_microphone_names()):
-                try:
-                    self.microphone = sr.Microphone(device_index=mic_index)
-                    with self.microphone as source:
-                        self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                    log_info(f"Using microphone: {mic_name}")
-                    break
-                except Exception as e:
-                    log_warning(f"Skipping mic index {mic_index} ({mic_name}): {e}")
-                    continue
-            
-            if not self.microphone:
-                log_error("No working microphone found")
-                return False
-            
-            # Start recognition thread
-            self.stop_recognition.clear()
-            self.recognition_thread = threading.Thread(target=self._recognition_loop)
-            self.recognition_thread.daemon = True
-            self.recognition_thread.start()
-            
-            log_info("Voice recognition started")
-            # Use a slight delay before speaking to ensure thread starts
+            # Add short delay to ensure audio system is ready
             time.sleep(0.5)
-            self.speak("Voice control activated", "startup")
-            return True
+            self.microphone = sr.Microphone()
+            log_info("Microphone initialized")
+            
+            # Adjust for ambient noise
+            with self.microphone as source:
+                log_info("Adjusting for ambient noise...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                log_info(f"Energy threshold set to {self.recognizer.energy_threshold}")
         except Exception as e:
-            log_error(f"Error starting voice recognition: {e}", exc_info=True)
-            return False
-    
+            log_error(f"Failed to initialize microphone: {e}")
+            return
+            
+        # Start recognition thread
+        self.stop_event.clear()
+        self.recognition_thread = threading.Thread(target=self._recognize_continuously)
+        self.recognition_thread.daemon = True
+        self.recognition_thread.start()
+        self.is_running = True
+        log_info("Voice recognition started")
+        
     def stop(self):
-        """Stop voice recognition"""
-        if self.recognition_thread and self.recognition_thread.is_alive():
-            self.stop_recognition.set()
-            self.recognition_thread.join(timeout=2.0) # Increased timeout slightly
-            if self.recognition_thread.is_alive():
-                 log_warning("Voice recognition thread did not exit cleanly.")
-            else:
-                 log_info("Voice recognition stopped")
-            return True
-        return False
-    
+        """Stop the voice controller"""
+        if not self.is_running:
+            return
+            
+        log_info("Stopping voice controller...")
+        self.stop_event.set()
+        
+        if self.recognition_thread:
+            self.recognition_thread.join(timeout=2)
+        
+        self.is_running = False
+        log_info("Voice controller stopped")
+
+    def _process_speech(self, text):
+        """Process recognized speech text"""
+        if not text:
+            return
+            
+        text = text.lower().strip()
+        log_debug(f"Processing speech: '{text}'")
+        
+        # Check for wake word
+        wake_word_detected = False
+        for wake_word in self.wake_words:
+            if wake_word in text:
+                wake_word_detected = True
+                # Remove wake word from text
+                command = text.replace(wake_word, "").strip()
+                log_info(f"Wake word detected, command: '{command}'")
+                
+                # Set status to listening
+                with self.status_lock:
+                    self.status = VoiceStatus.LISTENING
+                    
+                # Process command
+                if not command:
+                    self.speak("Yes?")
+                    return
+                    
+                # Check for special commands
+                if command in ["hello", "hi"]:
+                    self.speak("Hello! I'm Trilobot. How can I help you?")
+                elif "status" in command:
+                    self.speak("I'm operational and ready for your commands.")
+                elif "stop" in command or "halt" in command:
+                    self.speak("Stopping all motors.")
+                    self.control_manager.execute_action(ControlAction.STOP, source="voice")
+                elif "forward" in command:
+                    self.speak("Moving forward.")
+                    self.control_manager.execute_action(ControlAction.MOVE_FORWARD, source="voice")
+                elif "backward" in command or "back" in command:
+                    self.speak("Moving backward.")
+                    self.control_manager.execute_action(ControlAction.MOVE_BACKWARD, source="voice")
+                elif "left" in command:
+                    self.speak("Turning left.")
+                    self.control_manager.execute_action(ControlAction.TURN_LEFT, source="voice")
+                elif "right" in command:
+                    self.speak("Turning right.")
+                    self.control_manager.execute_action(ControlAction.TURN_RIGHT, source="voice")
+                elif "photo" in command or "picture" in command or "snapshot" in command:
+                    self.speak("Taking a photo.")
+                    self.control_manager.execute_action(ControlAction.TAKE_PHOTO, source="voice")
+                elif "party" in command:
+                    self.speak("Party mode activated!")
+                    self.control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="voice")
+                elif "knight" in command or "rider" in command:
+                    self.speak("Knight Rider mode activated!")
+                    self.control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="voice")
+                elif "led" in command or "light" in command:
+                    self.speak("Toggling LEDs.")
+                    self.control_manager.execute_action(ControlAction.TOGGLE_LEDS, source="voice")
+                else:
+                    self.speak(f"I heard you say {command}, but I don't know how to handle that command.")
+                
+                # Reset status
+                with self.status_lock:
+                    self.status = VoiceStatus.IDLE
+                break
+                
+        if not wake_word_detected:
+            log_debug("No wake word detected in speech")
+
     def speak(self, text, cache_key=None):
         """Speak the given text using TTS"""
         if not self.enabled or not self.audio_available:
@@ -375,117 +499,79 @@ class VoiceController:
         except Exception as e:
             log_error(f"Unexpected error during audio playback: {e}", exc_info=True)
 
-    def _recognition_loop(self):
-        """Main loop for listening and processing voice commands"""
-        if not self.microphone or not self.recognizer:
-            log_error("Recognition loop cannot start: mic or recognizer not initialized.")
+    def _recognize_continuously(self):
+        """Continuously listen for voice commands"""
+        if not sr or not self.recognizer or not hasattr(self, 'microphone'):
+            log_error("Speech recognition not properly initialized")
             return
             
-        log_info("Voice recognition loop started")
-        try:
-            # Import here to avoid circular imports
-            from web_control import record_voice_activity
-            record_voice_activity("Voice system active, listening for wake word")
-        except ImportError:
-            log_warning("Could not import web_control.record_voice_activity - web UI won't show voice status")
-        except Exception as e:
-            log_warning(f"Error recording voice activity: {e}")
+        log_info("Starting continuous speech recognition")
+        
+        # Set initial status
+        with self.status_lock:
+            self.status = VoiceStatus.IDLE
             
-        active_listening = False # Flag to track if activation phrase was heard
-        last_active_time = 0
-        timeout_duration = config.get("voice", "timeout_duration") or 10 # Removed fallback
-
-        while not self.stop_recognition.is_set():
-            log_debug("Listening for audio...")
-            with self.microphone as source:
-                try:
-                    # Listen for audio input
-                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=5)
-                except sr.WaitTimeoutError:
-                    log_debug("No speech detected in timeout period.")
-                    # Check if we were actively listening and timed out
-                    if active_listening and (time.time() - last_active_time > timeout_duration):
-                         log_info("Command listening timed out.")
-                         active_listening = False
-                         try:
-                             from web_control import record_voice_activity
-                             record_voice_activity("Listening for wake word")
-                         except:
-                             pass
-                    continue
-                except Exception as listen_e:
-                     log_error(f"Error during audio listening: {listen_e}")
-                     time.sleep(1) # Avoid busy-looping on persistent errors
-                     continue
-
+        # Initialize microphone
+        try:
+            microphone = self.microphone
+        except Exception as e:
+            log_error(f"Failed to initialize microphone: {e}")
+            return
+            
+        # Recognition loop
+        while not self.stop_event.is_set():
             try:
-                # Recognize speech using Google Web Speech API
-                text = self.recognizer.recognize_google(audio).lower()
-                log_info(f"Voice received: '{text}'")
-                try:
-                    from web_control import record_voice_activity
-                    record_voice_activity(f"Heard: \"{text}\"")
-                except:
-                    pass
-
-                # Check for activation phrase if not already listening
-                if not active_listening:
-                    if self.activation_phrase in text:
-                        log_info("Activation phrase detected!")
-                        active_listening = True
-                        last_active_time = time.time()
-                        # Optional: Provide audio feedback
-                        self.speak("Yes?", "activation_confirm")
-                        try:
-                            from web_control import record_voice_activity
-                            record_voice_activity("Wake word detected! Listening for command...")
-                        except:
-                            pass
-                        # Process command immediately if activation phrase was the only thing said
-                        command_part = text.replace(self.activation_phrase, "").strip()
-                        if command_part:
-                             self._process_command(command_part)
-                        else:
-                             log_info("Waiting for command after activation...")
-                    else:
-                        log_debug("Ignoring speech (activation phrase not detected).")
-                else:
-                    # Already actively listening, process the command
-                    self._process_command(text)
-                    # Reset active listening after processing a command
-                    active_listening = False
-                    try:
-                        from web_control import record_voice_activity
-                        record_voice_activity("Command processed, listening for wake word")
-                    except:
-                        pass
+                # Set status to idle
+                with self.status_lock:
+                    self.status = VoiceStatus.IDLE
                     
-            except sr.UnknownValueError:
-                log_warning("Could not understand audio")
-                if active_listening:
-                     # Maybe provide feedback if we were expecting a command
-                     # self.speak("Sorry, I didn't catch that.", "unknown_value")
-                     # Consider resetting active_listening here too, or keep listening briefly?
-                     try:
-                         from web_control import record_voice_activity
-                         record_voice_activity("Could not understand audio")
-                     except:
-                         pass
-                     pass 
-            except sr.RequestError as e:
-                log_error(f"Could not request results from Google Speech Recognition service; {e}")
-                # Might indicate network issues
-                active_listening = False # Reset on network error
+                log_debug("Listening for audio...")
+                
+                # Listen for audio
+                with microphone as source:
+                    audio = self.recognizer.listen(source, timeout=None, phrase_time_limit=10)
+                
+                # Recognition started, update status
+                with self.status_lock:
+                    self.status = VoiceStatus.PROCESSING
+                
+                log_debug("Audio received, recognizing...")
+                
                 try:
-                    from web_control import record_voice_activity
-                    record_voice_activity(f"Speech recognition error: {e}")
-                except:
-                    pass
-            except Exception as recog_e:
-                 log_error(f"Error during voice recognition processing: {recog_e}", exc_info=True)
-                 active_listening = False # Reset on unexpected errors
+                    # Recognize speech
+                    text = self.recognizer.recognize_google(audio)
+                    log_info(f"Voice received: '{text}'")
+                    
+                    # Process recognized speech
+                    self._process_speech(text)
+                    
+                except sr.UnknownValueError:
+                    log_warning("Could not understand audio")
+                except sr.RequestError as e:
+                    log_error(f"Recognition request error: {e}")
+                    # Back off for a few seconds if we get an API error
+                    time.sleep(3)
+                except Exception as e:
+                    log_error(f"Unexpected error in speech recognition: {e}")
+                    
+                # Reset status to idle
+                with self.status_lock:
+                    self.status = VoiceStatus.IDLE
+                    
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                log_error(f"Error in voice recognition loop: {e}")
+                # Back off for a few seconds to avoid tight error loops
+                time.sleep(2)
+                
+        log_info("Speech recognition stopped")
 
-        log_info("Voice recognition loop finished.")
+    def _fuzzy_match(self, target, text):
+        """Simple fuzzy matching for wake word detection"""
+        return target in text or any(
+            part in text for part in target.split() if len(part) > 3
+        )
 
     def _process_command(self, command):
         """Process recognized command text"""
@@ -535,6 +621,35 @@ class VoiceController:
         basic_commands = ["move forward", "turn left", "stop", "knight rider", "take photo", "status"]
         response = f"You can ask me to: {', '.join(basic_commands)}. Say '{self.activation_phrase}' first if I'm not listening."
         self.speak(response, "help_reply")
+
+    def _initialize_audio(self):
+        """Initialize the audio system and test microphone"""
+        try:
+            # Initialize recognizer with adjusted parameters
+            self.recognizer = sr.Recognizer()
+            
+            # Set initial energy threshold higher for better wake word detection
+            self.recognizer.energy_threshold = 3000
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.dynamic_energy_adjustment_damping = 0.15
+            self.recognizer.dynamic_energy_ratio = 1.5
+            self.recognizer.pause_threshold = 0.8
+            self.recognizer.phrase_threshold = 0.3
+            
+            # Test microphone availability
+            with sr.Microphone() as source:
+                log_debug(f"Microphone: {source.device_index}, sample rate: {source.SAMPLE_RATE}")
+                log_info("Testing microphone...")
+                
+                # Adjust for ambient noise
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                log_debug(f"Energy threshold set to {self.recognizer.energy_threshold}")
+                
+                return True
+                
+        except Exception as e:
+            log_error(f"Error initializing audio: {e}", exc_info=True)
+            return False
 
 # Singleton instance
 voice_controller = VoiceController() 

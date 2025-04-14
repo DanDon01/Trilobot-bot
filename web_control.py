@@ -164,6 +164,8 @@ def start_light_show(effect_function):
 @app.route('/button/<button_name>/<action>')
 def handle_button(button_name, action):
     """Handle button presses from web interface"""
+    from debugging import log_debug
+    log_debug(f"Web button handler: {button_name} - {action}")
     print(f"DEBUG: handle_button entered with: button={button_name}, action={action}") 
     log_info(f"Button press received: {button_name} - {action} (Web)")
     
@@ -172,10 +174,12 @@ def handle_button(button_name, action):
         # *** Get the shared robot instance ***
         tbot = control_manager.robot 
         can_access_hw = hardware_available and tbot is not None
+        log_debug(f"Web button hardware access: {can_access_hw}")
         
         if button_name == 'triangle':
             if is_active:
                 # Toggle button LEDs
+                log_debug(f"Web triangle button: toggling LEDs, current state: {control_manager.button_leds_active}")
                 control_manager.button_leds_active = not control_manager.button_leds_active
                 
                 # This assumes hardware access - guard it
@@ -192,6 +196,7 @@ def handle_button(button_name, action):
                     log_warning(f"Unable to access hardware LEDs: {e}")
         elif button_name == 'circle':
             if is_active:
+                log_debug(f"Web circle button: toggling Knight Rider, current state: {control_manager.knight_rider_active}")
                 control_manager.execute_action(ControlAction.TOGGLE_KNIGHT_RIDER, source="web")
                 if control_manager.knight_rider_active:
                     start_light_show(knight_rider_effect)
@@ -203,6 +208,7 @@ def handle_button(button_name, action):
         elif button_name == 'cross':
             # *** Re-purposed: Take Photo ***
             if is_active:
+                log_debug(f"Web cross button: taking photo")
                 log_info("Web button Cross pressed -> TAKE_PHOTO") # Log change
                 # Trigger take photo action
                 control_manager.execute_action(ControlAction.TAKE_PHOTO, source="web")
@@ -210,6 +216,7 @@ def handle_button(button_name, action):
                 # document.getElementById('status-text').textContent = 'Taking photo...'; // Handled client-side ideally
         elif button_name == 'square':
             if is_active:
+                log_debug(f"Web square button: toggling Party Mode, current state: {control_manager.party_mode_active}")
                 control_manager.execute_action(ControlAction.TOGGLE_PARTY_MODE, source="web")
                 if control_manager.party_mode_active:
                     start_light_show(party_mode_effect)
@@ -219,6 +226,7 @@ def handle_button(button_name, action):
                           try: tbot.clear_underlighting() 
                           except: pass # Ignore errors during clear
         
+        log_debug(f"Web button response: success for {button_name}")
         return jsonify({
             'status': 'success',
             'button': button_name,
@@ -232,6 +240,10 @@ def handle_button(button_name, action):
         
     except Exception as e:
         log_error(f"Button error: {e}")
+        import traceback
+        error_traceback = traceback.format_exc()
+        log_debug(f"Web button error traceback: {error_traceback}")
+        print(f"BUTTON ERROR (Web): {e}\n{error_traceback}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/move/<direction>/<action>')
@@ -511,6 +523,15 @@ def record_voice_activity(activity):
     last_voice_activity = activity
     voice_activity_timestamp = time.time()
     log_debug(f"Voice activity recorded: {activity}")
+
+@app.route('/ping')
+def ping():
+    """Simple endpoint to check if the server is responding"""
+    return jsonify({
+        'status': 'success',
+        'message': 'Trilobot web server is operational',
+        'timestamp': time.time()
+    })
 
 def main():
     """Main function to start the web control server"""

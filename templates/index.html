@@ -148,6 +148,15 @@
             border-top: 1px solid #eee;
             min-height: 2em;
         }
+        
+        .status-message {
+            margin-top: 10px;
+            padding: 8px;
+            border-top: 1px solid #eee;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -182,6 +191,7 @@
                 </div>
             </div>
             <div class="voice-activity" id="voice-activity">Voice system initialized</div>
+            <div class="status-message" id="status-text">Ready</div>
         </div>
         
         <div class="control-section">
@@ -369,20 +379,27 @@
 
         function sendButtonCommand(buttonName, action) {
              console.log(`Sending command: /button/${buttonName}/${action}`);
+             
+             // Show in the status that we're sending the command
+             document.getElementById('status-text').textContent = `Sending: ${buttonName} ${action}...`;
+             
              fetch(`/button/${buttonName}/${action}`)
                 .then(response => {
+                    console.log(`Button command response status: ${response.status}`);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
                     return response.json();
                 })
                 .then(data => {
+                    console.log(`Button command response data:`, data);
                     if (data.status === 'success') {
                         // Update status based on returned state if needed
                         document.getElementById('status-text').textContent = `Action: ${buttonName} ${action}`; 
                         console.log("Button action success:", data);
                     } else {
                         document.getElementById('status-text').textContent = `Error: ${data.message || 'Unknown'}`;
+                        console.error(`Button error: ${data.message || 'Unknown error'}`);
                     }
                 })
                 .catch(error => {
@@ -423,10 +440,8 @@
             // Try to reload the stream after a delay
             setTimeout(() => {
                 const img = document.getElementById('camera-stream');
-                if (img.src.includes('/static/no-camera.png')) {
-                    // If already showing the error image, try to reconnect to the stream
-                    img.src = "{{ stream_url }}?t=" + new Date().getTime(); // Cache buster
-                }
+                // Attempt to reconnect to the stream
+                img.src = "{{ stream_url }}?t=" + new Date().getTime(); // Cache buster
             }, 10000); // Try to reconnect every 10 seconds
         }
 
