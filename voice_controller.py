@@ -22,8 +22,8 @@ import platform
 # for when voice_controller is run directly in testing
 if 'PYGAME_HIDE_SUPPORT_PROMPT' not in os.environ:
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'  # Hide pygame welcome message
-if 'ALSA_OUTPUT_GIVE_UP' not in os.environ:
-    os.environ['ALSA_OUTPUT_GIVE_UP'] = '1'  # Tell ALSA to give up after first error
+# Removed ALSA_OUTPUT_GIVE_UP
+    # Removed ALSA audio environment variable
 
 # We no longer need to do stderr redirection here since main.py handles it globally
 # But we'll import pygame here to ensure it's loaded with the environment variables set
@@ -203,26 +203,15 @@ class VoiceController:
                 log_warning("Audio initialization skipped on non-compatible platform")
                 self.audio_available = False
             else:
-                # Try to set SDL driver to dummy before pygame init
-                os.environ['SDL_AUDIODRIVER'] = 'dummy'
+                # Don't set dummy driver, let pygame use the system default
                 try:
                     # Initialize pygame mixer with conservative settings to reduce errors
                     pygame.mixer.init(frequency=44100, size=-16, channels=1, buffer=4096)
                     self.audio_available = True
-                    log_info("Audio playback initialized with dummy driver")
-                except pygame.error as dummy_error:
-                    # If dummy driver fails, try without specifying driver
-                    log_warning(f"Dummy audio failed: {dummy_error} - trying default driver")
-                    try:
-                        # Remove the dummy driver setting
-                        if 'SDL_AUDIODRIVER' in os.environ:
-                            del os.environ['SDL_AUDIODRIVER']
-                        pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=4096)
-                        self.audio_available = True
-                        log_info("Audio playback initialized with default driver")
-                    except pygame.error as default_error:
-                        log_warning(f"Default audio failed: {default_error}")
-                        self.audio_available = False
+                    log_info("Audio playback initialized with system default driver")
+                except pygame.error as default_error:
+                    log_warning(f"Audio initialization failed: {default_error}")
+                    self.audio_available = False
         except Exception as e:
             log_warning(f"Failed to initialize audio: {e}")
             log_warning("Voice synthesis (speech output) will be disabled")
