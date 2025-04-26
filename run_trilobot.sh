@@ -39,7 +39,7 @@ fi
 
 # Run the main application using the venv's Python
 echo "Starting Trilobot application ($PYTHON_EXEC main.py)..."
-"$PYTHON_EXEC" "$SCRIPT_DIR/main.py"
+"$PYTHON_EXEC" "$SCRIPT_DIR/main.py" 2> >(grep -v "^ALSA")
 
 # Get the exit code from the python script
 EXIT_CODE=$?
