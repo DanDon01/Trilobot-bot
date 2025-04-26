@@ -14,6 +14,7 @@ from threading import Condition
 import sys
 from datetime import datetime
 
+
 # Import local modules
 from debugging import log_info, log_error, log_warning, Performance, safe_log
 from config import config
@@ -45,6 +46,11 @@ except Exception as e:
     picamera2_error = f"Camera hardware error: {e}"
     safe_log(logger, 'warning', f"Camera hardware error: {picamera2_error}")
     safe_log(logger, 'warning', "Make sure the camera is enabled with 'sudo raspi-config' and connected properly")
+if not hardware_available:
+    from camera_cv import camera_processor   # <- tiny OpenCV backend
+else:
+    camera_processor = CameraProcessor()
+
 
 # Use numpy only if it's available, otherwise create a simple mock implementation
 try:
