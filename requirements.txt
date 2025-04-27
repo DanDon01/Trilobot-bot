@@ -1,31 +1,23 @@
-# Core dependencies
-flask==2.0.1
-picamera2>=0.3.9
-evdev>=1.5.0
-numpy>=1.19.0
-pygame>=2.1.0
-pillow>=9.0.0
-pathlib>=1.0.1
+Flask
+matplotlib
+numpy
+pandas
+pygame
+Pillow
+psutil
+requests
+scipy
+seaborn
+simplejpeg
+SpeechRecognition
+torch
+torchvision
+tqdm
+ultralytics
+ultralytics-thop
+websockets
+Werkzeug
+v4l2-python3
+pyaudio
+elevenlabs
 
-# Voice recognition
-SpeechRecognition>=3.8.1
-PyAudio>=0.2.11
-elevenlabs>=0.2.24
-
-# Computer vision
-tflite-runtime>=2.5.0
-
-# Trilobot dependencies
-trilobot>=0.0.3
-
-# Development dependencies
-pytest>=7.0.0
-pylint>=2.12.0
-
-# System dependencies (comment these as they're typically installed via apt)
-# python3-libcamera
-# python3-picamera2
-# python3-evdev
-# joystick
-# bluetooth
-# pi-bluetooth
